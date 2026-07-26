@@ -1,0 +1,186 @@
+"""Payment provider abstraction.
+
+Only "manual" is wired to a real, working flow: the customer sends a
+transfer receipt (screenshot or text) in the bot, and an admin confirms it
+with one tap. That is enough to launch and take real orders immediately.
+
+`AlifPayProvider` is a scaffold, not a working integration. Alif Business
+does not publish a public generic REST spec — the real Shop ID, Secret
+Key, endpoint URLs and signature scheme are handed to you directly by
+Alif after you sign a merchant agreement. Fill in `_create_invoice` and
+`verify_callback` from that document before switching
+PAYMENT_PROVIDER=alif in production. Shipping this half-finished would
+silently take customers' money without confirming it actually arrived.
+"""
+
+from __future__ import annotations
+
+import hashlib
+import hmac
+from abc import ABC, abstractmethod
+from dataclasses import dataclass
+
+from bot.config import config
+
+
+@dataclass
+class InvoiceResult:
+    provider_reference: str
+    pay_url: str | None  # link to send the customer to, if any
+    instructions: str  # what to show the customer in the bot
+    card_photo_file_id: str | None = None  # photo of the receiving card, if admin set one
+
+
+class PaymentProvider(ABC):
+    @abstractmethod
+    async def create_invoice(self, order_id: int, amount_somoni: float) -> InvoiceResult:
+        """Start a payment for an order and return how the customer should pay."""
+
+    @abstractmethod
+    def verify_callback(self, payload: dict, headers: dict) -> tuple[bool, str | None]:
+        """Validate an inbound payment-gateway webhook.
+
+        Returns (is_valid, provider_reference_if_paid).
+        """
+
+
+def _build_expresspay_link(order_id: int, amount_somoni: float) -> str | None:
+    """Pay-by-link with the recipient card and exact amount pre-filled, so
+    the customer just taps "Пардохт" and confirms — reverse-engineered from
+    a real link a similar shop's bot sends
+    (?A=<card>&s=<amount>&c=<label>&f1=<code>). f1 turned out to be
+    required (the page errors "one of the parameters is empty" without
+    it) — see config.expresspay_f1."""
+    if not config.receiving_card_number:
+        return None
+    return (
+        f"{config.expresspay_base_url}?A={config.receiving_card_number}"
+        f"&s={amount_somoni:.2f}&c=order_{order_id}&f1={config.expresspay_f1}"
+    )
+
+
+class ManualBankTransferProvider(PaymentProvider):
+    """Works today with zero external accounts: customer transfers by card
+    and sends proof; admin taps Confirm in the bot."""
+
+    async def create_invoice(self, order_id: int, amount_somoni: float) -> InvoiceResult:
+        from bot.db.repo import get_card_photo_file_id
+        from bot.db.session import get_session
+
+        pay_url = _build_expresspay_link(order_id, amount_somoni)
+
+        if not config.receiving_card_number:
+            card_line = "⚠️ Рақами корти қабулкунанда танзим нашудааст — бо админ тамос гиред.\n"
+        else:
+            card_line = f"💳 Корт: {config.receiving_card_number}\n"
+
+        if pay_url:
+            instructions = (
+                f"{card_line}"
+                f"💰 Маблағи дақиқ: {amount_somoni:.2f} сомонӣ (на кам, на зиёд)\n\n"
+                f"Тугмаи «💳 Пардохт»-ро пахш кунед, маблағро тасдиқ кунед, "
+                f"баъд расиди пардохтро (скриншот) ба ин ҷо фиристед."
+            )
+        else:
+            instructions = (
+                f"{card_line}"
+                f"Лутфан {amount_somoni:.2f} сомонӣ гузаронед ва расиди пардохтро "
+                f"(скриншот) ба ин ҷо фиристед. Пас аз тасдиқи админ фармоишатон иҷро мешавад."
+            )
+
+        async with get_session() as session:
+            card_photo_file_id = await get_card_photo_file_id(session)
+
+        return InvoiceResult(
+            provider_reference=f"manual-{order_id}",
+            pay_url=pay_url,
+            instructions=instructions,
+            card_photo_file_id=card_photo_file_id,
+        )
+
+    def verify_callback(self, payload: dict, headers: dict) -> tuple[bool, str | None]:
+        # Manual provider has no webhook; confirmation happens via admin button.
+        return False, None
+
+
+class AlifPayProvider(PaymentProvider):
+    """Scaffold only — see module docstring. Do not enable without real
+    credentials and the real callback signature scheme from Alif Business."""
+
+    def __init__(self) -> None:
+        if not (config.alif_shop_id and config.alif_secret_key and config.alif_api_base_url):
+            raise RuntimeError(
+                "PAYMENT_PROVIDER=alif is set but ALIF_SHOP_ID / ALIF_SECRET_KEY / "
+                "ALIF_API_BASE_URL are empty. Get these from your Alif Business merchant "
+                "agreement first — see bot/services/payments.py docstring."
+            )
+        self.shop_id = config.alif_shop_id
+        self.secret_key = config.alif_secret_key
+        self.api_base_url = config.alif_api_base_url
+
+    async def create_invoice(self, order_id: int, amount_somoni: float) -> InvoiceResult:
+        raise NotImplementedError(
+            "Wire this up to Alif's real 'create invoice' endpoint once you have "
+            "their merchant API doc. Placeholder to prevent silently taking payments "
+            "without a real gateway behind it."
+        )
+
+    def verify_callback(self, payload: dict, headers: dict) -> tuple[bool, str | None]:
+        # Placeholder HMAC check — replace with Alif's actual signature scheme.
+        signature = headers.get("X-Signature", "")
+        expected = hmac.new(
+            self.secret_key.encode(), str(payload).encode(), hashlib.sha256
+        ).hexdigest()
+        if not hmac.compare_digest(signature, expected):
+            return False, None
+        if payload.get("status") == "paid":
+            return True, str(payload.get("transaction_id"))
+        return False, None
+
+
+class DCBankProvider(PaymentProvider):
+    """Scaffold only, same reasoning as AlifPayProvider. Dushanbe City Bank
+    (dc.tj) does run merchant/internet-acquiring services ("Express Pay"),
+    but — like Alif — doesn't publish a public generic API spec. Contact
+    them directly as a registered business to get a Shop ID, Secret Key,
+    and their real endpoint/callback signature documentation, then fill in
+    `create_invoice` and `verify_callback` below before switching
+    PAYMENT_PROVIDER=dc in production."""
+
+    def __init__(self) -> None:
+        if not (config.dc_shop_id and config.dc_secret_key and config.dc_api_base_url):
+            raise RuntimeError(
+                "PAYMENT_PROVIDER=dc is set but DC_SHOP_ID / DC_SECRET_KEY / "
+                "DC_API_BASE_URL are empty. Get these from Dushanbe City Bank as a "
+                "registered merchant first — see bot/services/payments.py docstring."
+            )
+        self.shop_id = config.dc_shop_id
+        self.secret_key = config.dc_secret_key
+        self.api_base_url = config.dc_api_base_url
+
+    async def create_invoice(self, order_id: int, amount_somoni: float) -> InvoiceResult:
+        raise NotImplementedError(
+            "Wire this up to DC Bank's real 'create invoice' endpoint once you have "
+            "their merchant API doc. Placeholder to prevent silently taking payments "
+            "without a real gateway behind it."
+        )
+
+    def verify_callback(self, payload: dict, headers: dict) -> tuple[bool, str | None]:
+        # Placeholder HMAC check — replace with DC Bank's actual signature scheme.
+        signature = headers.get("X-Signature", "")
+        expected = hmac.new(
+            self.secret_key.encode(), str(payload).encode(), hashlib.sha256
+        ).hexdigest()
+        if not hmac.compare_digest(signature, expected):
+            return False, None
+        if payload.get("status") == "paid":
+            return True, str(payload.get("transaction_id"))
+        return False, None
+
+
+def get_payment_provider() -> PaymentProvider:
+    if config.payment_provider == "alif":
+        return AlifPayProvider()
+    if config.payment_provider == "dc":
+        return DCBankProvider()
+    return ManualBankTransferProvider()
