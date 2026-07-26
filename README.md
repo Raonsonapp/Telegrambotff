@@ -112,14 +112,15 @@ python main.py
    - `BOT_TOKEN` — токени бот аз @BotFather
    - `ADMIN_CHAT_ID` — ID-и гурӯҳи/чати админ (барои огоҳиномаҳо)
    - `ADMIN_USER_IDS` — ID-и телеграмии шумо (админ), бо вергул ҷудо
-   - `PUBLIC_URL` — маҳз ҳамон URL-и хидмати шумо, масалан
-     `https://diamond-bot-qakk.onrender.com` (бе `/` дар охир)
+   - `PUBLIC_URL` — ин лозим нест иловат кунед: пешфарз аллакай маҳз
+     `https://telegrambotff-jbqe.onrender.com` аст (бе `/` дар охир). Танҳо
+     агар хидмати шумо ба URL-и дигар кӯчад, инро танзим кунед.
    - `TELEGRAM_WEBHOOK_SECRET` — як сатри тасодуфии дароз (масалан аз
      `openssl rand -hex 32`), барои амният
    - `PORT`-ро **насозед** — Render онро худаш медиҳад
 3. Deploy кунед. Ҳангоми оғоз бот худаш ба Telegram мегӯяд "ба ин URL
    навсозиҳоро фиристед" (`set_webhook`).
-4. Санҷиш: `https://diamond-bot-qakk.onrender.com/` бояд "OK" нишон диҳад.
+4. Санҷиш: `https://telegrambotff-jbqe.onrender.com/` бояд "OK" нишон диҳад.
    Баъд дар Telegram ба бот `/start` фиристед.
 
 ### Огоҳии муҳим — нигаҳдории маълумот

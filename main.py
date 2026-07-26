@@ -70,7 +70,7 @@ async def run_webhook(bot: Bot, dp: Dispatcher) -> None:
     process listens on via the $PORT environment variable, and expect the
     process to keep running and answering HTTP requests — that's what this
     aiohttp app does. PUBLIC_URL must be the exact https URL Render gave
-    your service, e.g. https://diamond-bot-qakk.onrender.com
+    your service, e.g. https://telegrambotff-jbqe.onrender.com
     """
     from aiogram.webhook.aiohttp_server import SimpleRequestHandler, setup_application
 
