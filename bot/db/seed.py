@@ -29,11 +29,19 @@ DEFAULT_PRODUCTS = [
 
 
 async def seed_default_products(session) -> None:
-    result = await session.execute(select(Product.id).limit(1))
-    if result.scalar_one_or_none() is not None:
-        return  # products already exist — never overwrite admin's own edits
+    # Per-item, not all-or-nothing: if the catalog was already seeded
+    # before an item (e.g. the vouchers) was added to DEFAULT_PRODUCTS
+    # above, skipping seeding entirely just because *something* exists
+    # left that item permanently missing from every deploy since. Matching
+    # by name still never touches — let alone overwrites — anything the
+    # admin has already added or edited.
+    result = await session.execute(select(Product.name))
+    existing_names = {name for (name,) in result.all()}
 
+    added = False
     for name, diamonds, price in DEFAULT_PRODUCTS:
+        if name in existing_names:
+            continue
         session.add(
             Product(
                 name=name,
@@ -43,4 +51,7 @@ async def seed_default_products(session) -> None:
                 cost_somoni=price,
             )
         )
-    await session.commit()
+        added = True
+
+    if added:
+        await session.commit()
