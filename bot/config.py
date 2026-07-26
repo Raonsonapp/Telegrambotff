@@ -1,4 +1,5 @@
 import os
+import re
 from dataclasses import dataclass, field
 
 from dotenv import load_dotenv
@@ -7,7 +8,17 @@ load_dotenv()
 
 
 def _int_list(raw: str) -> list[int]:
-    return [int(x) for x in raw.split(",") if x.strip()]
+    # Accept comma- AND/OR whitespace-separated IDs, not just commas — a
+    # value pasted twice by mistake in Render's dashboard (e.g. "123 123",
+    # no comma) used to crash the whole bot on startup with an opaque
+    # ValueError instead of just being parsed.
+    tokens = re.split(r"[,\s]+", raw.strip())
+    return [int(t) for t in tokens if t]
+
+
+def _first_int(raw: str, default: int = 0) -> int:
+    values = _int_list(raw)
+    return values[0] if values else default
 
 
 def _normalize_database_url(raw: str) -> str:
@@ -30,7 +41,7 @@ def _normalize_database_url(raw: str) -> str:
 @dataclass(frozen=True)
 class Config:
     bot_token: str = os.getenv("BOT_TOKEN", "")
-    admin_chat_id: int = int(os.getenv("ADMIN_CHAT_ID", "0") or "0")
+    admin_chat_id: int = _first_int(os.getenv("ADMIN_CHAT_ID", "0"))
     admin_user_ids: list[int] = field(
         default_factory=lambda: _int_list(os.getenv("ADMIN_USER_IDS", ""))
     )
