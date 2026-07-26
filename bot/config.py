@@ -60,7 +60,7 @@ class Config:
     # Your own card that customers pay into — shown as plain text and (if
     # set) used to build a pre-filled ExpressPay pay-by-link so the
     # customer doesn't have to type the card number/amount by hand.
-    receiving_card_number: str = os.getenv("RECEIVING_CARD_NUMBER", "")
+    receiving_card_number: str = os.getenv("RECEIVING_CARD_NUMBER", "9762000199761387")
     # Plain http:// on purpose — pay.expresspay.tj's TLS cert doesn't match
     # this hostname (ERR_CERT_COMMON_NAME_INVALID over https); the reference
     # bot's real working link used http:// too.
