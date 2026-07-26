@@ -16,15 +16,16 @@ from bot.db.models import Product, ProductCategory
 # pricing was provided, and seeding made-up numbers would show customers
 # a price nobody decided on. Add real ones with /addstars.
 DEFAULT_PRODUCTS = [
-    # (name, diamonds, price_somoni)
-    ("100 диамонд", 100, 10),
-    ("310 диамонд", 310, 30),
-    ("520 диамонд", 520, 50),
-    ("1060 диамонд", 1060, 110),
-    ("2180 диамонд", 2180, 210),
-    ("5600 диамонд", 5600, 500),
-    ("Ваучери ҳафтагӣ", 450, 18),
-    ("Ваучери моҳона", 2600, 99),
+    # (name, diamonds, bonus_diamonds, price_somoni)
+    ("100 диамонд", 100, 10, 8.90),
+    ("310 диамонд", 310, 31, 26.90),
+    ("520 диамонд", 520, 52, 46.90),
+    ("1060 диамонд", 1060, 106, 89.90),
+    ("2180 диамонд", 2180, 218, 179.00),
+    ("5600 диамонд", 5600, 560, 470.00),
+    ("Ваучери лайт", 200, 0, 5.90),
+    ("Ваучери ҳафтагӣ", 450, 0, 15.90),
+    ("Ваучери моҳона", 2600, 0, 89.90),
 ]
 
 
@@ -34,12 +35,13 @@ async def seed_default_products(session) -> None:
     # above, skipping seeding entirely just because *something* exists
     # left that item permanently missing from every deploy since. Matching
     # by name still never touches — let alone overwrites — anything the
-    # admin has already added or edited.
+    # admin has already added or edited (including price/bonus changes
+    # made via /setprice or /setbonus on a name that's already there).
     result = await session.execute(select(Product.name))
     existing_names = {name for (name,) in result.all()}
 
     added = False
-    for name, diamonds, price in DEFAULT_PRODUCTS:
+    for name, diamonds, bonus_diamonds, price in DEFAULT_PRODUCTS:
         if name in existing_names:
             continue
         session.add(
@@ -47,6 +49,7 @@ async def seed_default_products(session) -> None:
                 name=name,
                 category=ProductCategory.DIAMONDS,
                 diamonds=diamonds,
+                bonus_diamonds=bonus_diamonds,
                 price_somoni=price,
                 cost_somoni=price,
             )

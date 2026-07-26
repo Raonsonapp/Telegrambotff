@@ -107,9 +107,6 @@ def products_keyboard(products: list[Product], category: ProductCategory) -> Inl
         [InlineKeyboardButton(text=_product_label(p), callback_data=f"product:{p.id}")]
         for p in products
     ]
-    rows.append(
-        [InlineKeyboardButton(text="✏️ Миқдори дигар", callback_data=f"product:custom:{category.value}")]
-    )
     if category == ProductCategory.DIAMONDS:
         rows.append(
             [InlineKeyboardButton(text="🛒 Якчанд бастаро якҷоя харидан", callback_data=f"cartmode:{category.value}")]
