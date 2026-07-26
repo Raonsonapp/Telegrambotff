@@ -105,16 +105,16 @@ class Config:
     sms_webhook_secret: str = os.getenv("SMS_WEBHOOK_SECRET", "")
     sms_match_window_minutes: int = int(os.getenv("SMS_MATCH_WINDOW_MINUTES", "60"))
 
-    # Public shop channel: bot must be added there as admin with "Post
-    # Messages" permission, otherwise announcements silently fail.
-    shop_channel_url: str = os.getenv("SHOP_CHANNEL_URL", "https://t.me/ALMAZ_TJ_SHOP")
-    review_channel_id: str = os.getenv("REVIEW_CHANNEL_ID", "@ALMAZ_TJ_SHOP")
+    # Public review chat: bot must be added there (as admin with "Post
+    # Messages" permission if it's a channel) otherwise announcements
+    # silently fail.
+    shop_channel_url: str = os.getenv("SHOP_CHANNEL_URL", "https://t.me/otziv_chat_almaz_shop_bot")
+    review_channel_id: str = os.getenv("REVIEW_CHANNEL_ID", "@otziv_chat_almaz_shop_bot")
 
-    # wa.me link opens WhatsApp directly to a chat with this number —
-    # digits only (country code + number, no "+", spaces or leading zeros).
-    contact_whatsapp_url: str = os.getenv("CONTACT_WHATSAPP_URL", "https://wa.me/992971769009")
+    # wa.me link opens WhatsApp directly to a chat with this contact.
+    contact_whatsapp_url: str = os.getenv("CONTACT_WHATSAPP_URL", "https://wa.me/qr/D3W6PIWVWZSYD1")
     contact_instagram_url: str = os.getenv(
-        "CONTACT_INSTAGRAM_URL", "https://www.instagram.com/ff.a1maz?igsh=aGxyNzFtaWtnNjht"
+        "CONTACT_INSTAGRAM_URL", "https://www.instagram.com/almazzshop?igsh=ZTF1eHhubDloNmxu"
     )
 
 
