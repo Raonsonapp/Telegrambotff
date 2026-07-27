@@ -26,6 +26,15 @@ DEFAULT_PRODUCTS = [
     ("Ваучери лайт", 90, 0, 6.00),
     ("Ваучери ҳафтагӣ", 450, 0, 17.50),
     ("Ваучери моҳона", 2600, 0, 95.00),
+    ("Level Up Package 6",120,0,4.00),
+    ("Level Up Package 10",200,0,6.90),
+    ("Level Up Package 15",200,0,6.90),
+    ("Level Up Package 20",200,0,6.90),
+    ("Level Up Package 25",200,0,6.90),
+    ("Level Up Package 30",350,0,8.90),
+    ("Evo Access 3D",0,0,6.90),
+    ("Evo Access 7D",0,0,9.90),
+    ("Evo Access 30D",0,0,24.90),
 ]
 
 
