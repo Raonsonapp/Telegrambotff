@@ -43,13 +43,10 @@ from bot.keyboards import (
     reuse_recipient_keyboard,
     terms_keyboard,
 )
+from bot.middlewares import is_subscribed
 from bot.services.payments import get_payment_provider
-from bot.services.pricing import quote_custom_price
 from bot.states import OrderFlow
 from bot.texts import FAQ_TEXT, TERMS_TEXT
-
-MIN_CUSTOM_UNITS = 10
-MAX_CUSTOM_UNITS = 200_000
 
 router = Router(name="customer")
 
@@ -80,6 +77,28 @@ async def _format_orders_text(user_id: int) -> str:
     return "📦 Фармоишҳои охирини шумо:\n" + "\n".join(lines)
 
 
+async def _enter_bot(
+    message: Message,
+    user_id: int,
+    username: str | None,
+    full_name: str | None,
+    state: FSMContext,
+    referred_by: int | None = None,
+) -> None:
+    """Shared by /start and the post-subscription "✅ Check Subscription"
+    callback — registers/refreshes the user, then routes them to the terms
+    screen (first-time users) or straight to the main menu."""
+    async with get_session() as session:
+        user = await upsert_user(session, user_id, username, full_name, referred_by=referred_by)
+
+    await state.clear()
+    if user.accepted_terms_at is None:
+        await message.answer(TERMS_TEXT, reply_markup=terms_keyboard())
+        return
+
+    await _show_main_menu(message, state)
+
+
 @router.message(CommandStart())
 async def cmd_start(message: Message, state: FSMContext) -> None:
     args = message.text.split(maxsplit=1)
@@ -90,21 +109,37 @@ async def cmd_start(message: Message, state: FSMContext) -> None:
         except ValueError:
             referred_by = None
 
-    async with get_session() as session:
-        user = await upsert_user(
-            session,
-            message.from_user.id,
-            message.from_user.username,
-            message.from_user.full_name,
-            referred_by=referred_by,
-        )
+    await _enter_bot(
+        message,
+        message.from_user.id,
+        message.from_user.username,
+        message.from_user.full_name,
+        state,
+        referred_by=referred_by,
+    )
 
-    await state.clear()
-    if user.accepted_terms_at is None:
-        await message.answer(TERMS_TEXT, reply_markup=terms_keyboard())
+
+@router.callback_query(F.data == "forcejoin:check")
+async def check_subscription(callback: CallbackQuery, state: FSMContext) -> None:
+    """Handles the "✅ Check Subscription" button from the force-join gate
+    (bot/keyboards.py:force_join_keyboard, shown by bot/middlewares.py).
+    Re-checks membership; only on success does the user actually get in."""
+    if not await is_subscribed(callback.bot, callback.from_user.id):
+        await callback.answer("❌ Шумо ҳанӯз ба канали мо обуна нашудед.", show_alert=True)
         return
 
-    await _show_main_menu(message, state)
+    await callback.answer("✅ Ташаккур барои обуна!")
+    try:
+        await callback.message.edit_text("✅ Ташаккур! Шумо ба канал обуна шудед.")
+    except TelegramBadRequest:
+        pass
+    await _enter_bot(
+        callback.message,
+        callback.from_user.id,
+        callback.from_user.username,
+        callback.from_user.full_name,
+        state,
+    )
 
 
 @router.callback_query(F.data == "terms:accept")
@@ -132,9 +167,9 @@ async def menu_main(callback: CallbackQuery, state: FSMContext) -> None:
 # --- Persistent reply-keyboard buttons (bot/keyboards.py:main_reply_keyboard) ---
 # Registered ahead of every OrderFlow-state text handler further down, so
 # tapping one of these always wins over whatever mid-flow input state the
-# user was in (typing a player ID, a custom amount, ...) — the same
-# always-available "jump to a section" behavior the inline grid's buttons
-# give, just pinned below the input instead of inside a specific message.
+# user was in (typing a player ID, ...) — the same always-available "jump
+# to a section" behavior the inline grid's buttons give, just pinned below
+# the input instead of inside a specific message.
 
 
 @router.message(F.text == "🎮 Бозиҳо")
@@ -479,73 +514,6 @@ async def menu_myorders(callback: CallbackQuery) -> None:
     text = await _format_orders_text(callback.from_user.id)
     await callback.message.edit_text(text, reply_markup=back_to_menu_keyboard())
     await callback.answer()
-
-
-@router.callback_query(OrderFlow.choosing_product, F.data.startswith("product:custom:"))
-async def choose_custom_amount(callback: CallbackQuery, state: FSMContext) -> None:
-    category_value = callback.data.split(":", 2)[2]
-    await state.update_data(custom_category=category_value)
-    await state.set_state(OrderFlow.entering_custom_amount)
-    unit = "алмаз" if category_value == ProductCategory.DIAMONDS.value else "Stars"
-    await callback.message.edit_text(
-        f"Чанд адад {unit} мехоҳед? Рақамро нависед, аз {MIN_CUSTOM_UNITS} то {MAX_CUSTOM_UNITS}:"
-    )
-    await callback.answer()
-
-
-@router.message(OrderFlow.entering_custom_amount, F.text)
-async def enter_custom_amount(message: Message, state: FSMContext) -> None:
-    text = message.text.strip()
-    if not text.isdigit():
-        await message.answer("Лутфан танҳо рақам нависед, масалан 5000.")
-        return
-
-    amount = int(text)
-    if not (MIN_CUSTOM_UNITS <= amount <= MAX_CUSTOM_UNITS):
-        await message.answer(
-            f"Миқдор бояд аз {MIN_CUSTOM_UNITS} то {MAX_CUSTOM_UNITS} бошад. Боз кӯшиш кунед:"
-        )
-        return
-
-    data = await state.get_data()
-    category = ProductCategory(data.get("custom_category", ProductCategory.DIAMONDS.value))
-
-    async with get_session() as session:
-        products = await list_active_products(session, category=category)
-        if not products:
-            await message.answer("Ҳозир нархгузорӣ дастрас нест. Бо админ тамос гиред.")
-            await state.clear()
-            return
-
-        breakpoints = [(p.diamonds, p.price_somoni, p.cost_somoni) for p in products]
-        price, cost = quote_custom_price(amount, breakpoints)
-
-        custom_product = Product(
-            name=f"Дилхоҳ — {amount}",
-            category=category,
-            diamonds=amount,
-            price_somoni=price,
-            cost_somoni=cost,
-            is_active=False,
-        )
-        session.add(custom_product)
-        await session.commit()
-        await session.refresh(custom_product)
-
-    await state.update_data(product_id=custom_product.id)
-    await state.set_state(OrderFlow.entering_player_id)
-    unit = custom_product.unit_label
-    prompt = await _recipient_prompt(category)
-    text = f"{amount} {unit} — {price:.2f} сомонӣ.\n\nЛутфан {prompt} ирсол кунед:"
-
-    async with get_session() as session:
-        last_recipient = await get_last_recipient(session, message.from_user.id, category)
-
-    if last_recipient:
-        text += f"\n\nШумо пештар бо ин истифода карда будед: {last_recipient}"
-        await message.answer(text, reply_markup=reuse_recipient_keyboard(last_recipient))
-    else:
-        await message.answer(text)
 
 
 async def _recipient_prompt(category: ProductCategory) -> str:
