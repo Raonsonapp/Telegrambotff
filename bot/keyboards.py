@@ -15,6 +15,16 @@ def terms_keyboard() -> InlineKeyboardMarkup:
     )
 
 
+# Force-Join gate (see bot/middlewares.py) — shown instead of the main menu
+# until the user is a confirmed member of config.channel_username.
+def force_join_keyboard() -> InlineKeyboardMarkup:
+    rows = []
+    if config.channel_url:
+        rows.append([InlineKeyboardButton(text="📢 Join Channel", url=config.channel_url)])
+    rows.append([InlineKeyboardButton(text="✅ Check Subscription", callback_data="forcejoin:check")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
 # The single always-visible menu — pinned below the message input for the
 # whole chat once sent, independent of whatever inline keyboards later
 # messages carry. WELCOME_TEXT itself carries no inline grid anymore so
@@ -107,7 +117,7 @@ def products_keyboard(products: list[Product], category: ProductCategory) -> Inl
         [InlineKeyboardButton(text=_product_label(p), callback_data=f"product:{p.id}")]
         for p in products
     ]
-       if category == ProductCategory.DIAMONDS:
+    if category == ProductCategory.DIAMONDS:
         rows.append(
             [InlineKeyboardButton(text="🛒 Якчанд бастаро якҷоя харидан", callback_data=f"cartmode:{category.value}")]
         )
