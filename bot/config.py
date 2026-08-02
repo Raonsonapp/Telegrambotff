@@ -122,6 +122,23 @@ class Config:
     shop_channel_url: str = os.getenv("SHOP_CHANNEL_URL", "https://t.me/otziv_chat_almaz_shop_bot")
     review_channel_id: str = os.getenv("REVIEW_CHANNEL_ID", "@otziv_chat_almaz_shop_bot")
 
+    # Force-Join gate (see bot/middlewares.py): the bot refuses to do
+    # anything else until the user is a confirmed member of this channel.
+    # CHANNEL_USERNAME must be in "@handle" form — that's what
+    # bot.get_chat_member() expects as chat_id. CHANNEL_URL is the public
+    # t.me link shown on the "📢 Join Channel" button; if left blank it's
+    # derived automatically from CHANNEL_USERNAME. Leave CHANNEL_USERNAME
+    # empty to disable the gate entirely (e.g. while testing locally).
+    channel_username: str = os.getenv("CHANNEL_USERNAME", "")
+    channel_url: str = field(
+        default_factory=lambda: os.getenv("CHANNEL_URL")
+        or (
+            f"https://t.me/{os.getenv('CHANNEL_USERNAME', '').lstrip('@')}"
+            if os.getenv("CHANNEL_USERNAME", "").strip()
+            else ""
+        )
+    )
+
     # wa.me link opens WhatsApp directly to a chat with this contact.
     contact_whatsapp_url: str = os.getenv("CONTACT_WHATSAPP_URL", "https://wa.me/qr/D3W6PIWVWZSYD1")
     contact_instagram_url: str = os.getenv(
