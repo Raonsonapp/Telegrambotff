@@ -6,9 +6,9 @@ use), then taps "Delivered" in the bot, which notifies the customer.
 
 "fazercards" calls the real FazerCards reseller API (api.fzr.cards) for
 products that have been mapped to a real category/offer via
-/mapproduct — see bot/services/fazercards.py. Unmapped products (e.g. the
-"custom amount" quotes, which don't correspond to any fixed FazerCards
-offer) fall back to manual delivery automatically.
+/mapproduct — see bot/services/fazercards.py. Unmapped products (any
+product that hasn't been through /mapproduct yet) fall back to manual
+delivery automatically.
 """
 
 from __future__ import annotations
