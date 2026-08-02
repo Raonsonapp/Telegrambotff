@@ -50,7 +50,7 @@ from bot.texts import FAQ_TEXT, TERMS_TEXT
 
 router = Router(name="customer")
 
-WELCOME_TEXT = "Хуш омадед ба ALMAZ TJ! 💎\nМагазини фурӯши хидматҳои рақамӣ.\n\nЧиро интихоб мекунед?"
+WELCOME_TEXT = "Хуш омадед ба ALMAZZSHOP! 💎\nМагазини фурӯши хидматҳои рақамӣ.\n\nЧиро интихоб мекунед?"
 
 
 async def _show_main_menu(message: Message, state: FSMContext) -> None:
