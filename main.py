@@ -13,6 +13,7 @@ from bot.config import config
 from bot.db.session import init_db
 from bot.fsm_storage import storage
 from bot.handlers import admin, customer
+from bot.middlewares import ForceJoinMiddleware
 from bot.services.sms_webhook import register_sms_webhook
 
 logging.basicConfig(level=logging.INFO)
@@ -20,6 +21,15 @@ logging.basicConfig(level=logging.INFO)
 
 def build_dispatcher() -> Dispatcher:
     dp = Dispatcher(storage=storage)
+
+    # Force-Join gate — registered as an outer middleware on the
+    # dispatcher's own message/callback_query observers, so it applies to
+    # every router included below (admin and customer alike) before any of
+    # their handlers ever run. See bot/middlewares.py.
+    force_join = ForceJoinMiddleware()
+    dp.message.outer_middleware(force_join)
+    dp.callback_query.outer_middleware(force_join)
+
     dp.include_router(admin.router)
     dp.include_router(customer.router)
 
