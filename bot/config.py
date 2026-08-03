@@ -129,13 +129,11 @@ class Config:
     # t.me link shown on the "📢 Join Channel" button; if left blank it's
     # derived automatically from CHANNEL_USERNAME. Leave CHANNEL_USERNAME
     # empty to disable the gate entirely (e.g. while testing locally).
-    channel_username: str = os.getenv("CHANNEL_USERNAME", "ALMAZZSHOP_OTZIV")
+    channel_username: str = os.getenv("CHANNEL_USERNAME", "@otziv_chat_almaz_shop_bot")
     channel_url: str = field(
-        default_factory=lambda: os.getenv("https://t.me/boost/otziv_chat_almaz_shop_bot")
+        default_factory=lambda: os.getenv("CHANNEL_URL", "")
         or (
-            f"https://t.me/{os.getenv('CHANNEL_USERNAME', '').lstrip('@')}"
-            if os.getenv("CHANNEL_USERNAME", "").strip()
-            else ""
+            f"https://t.me/{os.getenv('CHANNEL_USERNAME', '@otziv_chat_almaz_shop_bot').lstrip('@')}"
         )
     )
 
