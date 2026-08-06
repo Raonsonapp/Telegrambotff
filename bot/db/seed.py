@@ -17,7 +17,7 @@ from bot.db.models import Product, ProductCategory
 # a price nobody decided on. Add real ones with /addstars.
 DEFAULT_PRODUCTS = [
     # (name, diamonds, bonus_diamonds, price_somoni)
-    ("100 DIAMOND", 100, 10, 9.),
+    ("100 DIAMOND", 100, 10, 9.50.),
     ("310 DIAMOND", 310, 31, 27.50),
     ("520 DIAMOND", 520, 52, 48.50),
     ("1060 DIAMOND", 1060, 106, 90.50.),
@@ -25,7 +25,7 @@ DEFAULT_PRODUCTS = [
     ("5600 DIAMOND", 5600, 560, 485.00),
     ("Ваучери Lite", 90, 0, 6.50),
     ("Ваучери weeky", 450, 0, 17.50.),
-    ("Ваучери Monther", 2600, 0, 90.00),
+    ("Ваучери Monther", 2600, 0, 900.00),
     ("Evo Access 3D",0,0,6.90),
     ("Evo Access 7D",0,0,9.90),
     ("Evo Access 30D",0,0,24.90),
