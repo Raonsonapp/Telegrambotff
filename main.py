@@ -91,6 +91,11 @@ async def run_webhook(bot: Bot, dp: Dispatcher) -> None:
         drop_pending_updates=True,
     )
 
+    info = await bot.get_webhook_info()
+logging.info("TELEGRAM WEBHOOK URL: %s", info.url)
+logging.info("TELEGRAM PENDING UPDATES: %s", info.pending_update_count)
+logging.info("TELEGRAM LAST ERROR: %s", info.last_error_message)
+
     app = web.Application()
 
     async def health(_request: web.Request) -> web.Response:
