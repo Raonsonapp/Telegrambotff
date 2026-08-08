@@ -1492,7 +1492,7 @@ async def select_payment_method(
         )
 
     elif method == "eskhata":
-    text = (
+        text = (
         "🔵 <b>Eskhata</b>\n\n"
         "📱 Рақами қабулкунанда:\n"
         "<code>976820008</code>\n\n"
