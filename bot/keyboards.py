@@ -1,26 +1,4 @@
-def payment_methods_keyboard() -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [
-                InlineKeyboardButton(
-                    text="🏙️ Душанбе Сити",
-                    callback_data="payment:dc",
-                )
-            ],
-            [
-                InlineKeyboardButton(
-                    text="🟢 Alif",
-                    callback_data="payment:alif",
-                )
-            ],
-            [
-                InlineKeyboardButton(
-                    text="🔵 Eskhata",
-                    callback_data="payment:eskhata",
-                )
-            ],
-        ]
-    )from aiogram.types import (
+from aiogram.types import (
     InlineKeyboardButton,
     InlineKeyboardMarkup,
     KeyboardButton,
@@ -186,6 +164,32 @@ def reuse_recipient_keyboard(recipient: str, label_suffix: str = "") -> InlineKe
 def payment_link_keyboard(pay_url: str) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[[InlineKeyboardButton(text="💳 Пардохт", url=pay_url)]]
+    )
+
+
+# Payment methods — added without changing the existing keyboards above.
+def payment_methods_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="🏙️ Душанбе Сити",
+                    callback_data="payment:dc",
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="🟢 Alif",
+                    callback_data="payment:alif",
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="🔵 Eskhata",
+                    callback_data="payment:eskhata",
+                )
+            ],
+        ]
     )
 
 
