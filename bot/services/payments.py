@@ -179,6 +179,9 @@ class DCBankProvider(PaymentProvider):
 
 
 def get_payment_provider() -> PaymentProvider:
+    # Ҳоло пардохт тавассути корти DC ва тасдиқи расид
+    # истифода мешавад.
+    return ManualBankTransferProvider()
     if config.payment_provider == "alif":
         return AlifPayProvider()
     if config.payment_provider == "dc":
