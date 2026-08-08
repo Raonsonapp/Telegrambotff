@@ -1,4 +1,26 @@
-from aiogram.types import (
+def payment_methods_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="🏙️ Душанбе Сити",
+                    callback_data="payment:dc",
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="🟢 Alif",
+                    callback_data="payment:alif",
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="🔵 Eskhata",
+                    callback_data="payment:eskhata",
+                )
+            ],
+        ]
+    )from aiogram.types import (
     InlineKeyboardButton,
     InlineKeyboardMarkup,
     KeyboardButton,
