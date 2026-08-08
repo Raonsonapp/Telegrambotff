@@ -56,7 +56,10 @@ WELCOME_TEXT = "Хуш омадед ба ALMAZZSHOP! 💎\nМагазини фу
 
 async def _show_main_menu(message: Message, state: FSMContext) -> None:
     await state.clear()
-    await message.answer("Менюи зерин ҳамеша дар поён дастрас аст 👇", reply_markup=main_reply_keyboard())
+    await message.answer(
+        "Менюи зерин ҳамеша дар поён дастрас аст 👇",
+        reply_markup=main_reply_keyboard(),
+    )
     await message.answer(WELCOME_TEXT)
 
 
@@ -66,14 +69,20 @@ async def _format_orders_text(user_id: int) -> str:
 
     async with get_session() as session:
         result = await session.execute(
-            select(Order).where(Order.user_id == user_id).order_by(Order.created_at.desc()).limit(10)
+            select(Order)
+            .where(Order.user_id == user_id)
+            .order_by(Order.created_at.desc())
+            .limit(10)
         )
         orders = list(result.scalars().all())
 
     if not orders:
         return "Шумо то ҳол фармоише надоред."
 
-    lines = [f"#{o.id} — {o.amount_somoni:.2f} сомонӣ — {o.status.value}" for o in orders]
+    lines = [
+        f"#{o.id} — {o.amount_somoni:.2f} сомонӣ — {o.status.value}"
+        for o in orders
+    ]
     return "📦 Фармоишҳои охирини шумо:\n" + "\n".join(lines)
 
 
@@ -86,11 +95,21 @@ async def _enter_bot(
     referred_by: int | None = None,
 ) -> None:
     async with get_session() as session:
-        user = await upsert_user(session, user_id, username, full_name, referred_by=referred_by)
+        user = await upsert_user(
+            session,
+            user_id,
+            username,
+            full_name,
+            referred_by=referred_by,
+        )
 
     await state.clear()
+
     if user.accepted_terms_at is None:
-        await message.answer(TERMS_TEXT, reply_markup=terms_keyboard())
+        await message.answer(
+            TERMS_TEXT,
+            reply_markup=terms_keyboard(),
+        )
         return
 
     await _show_main_menu(message, state)
@@ -100,6 +119,7 @@ async def _enter_bot(
 async def cmd_start(message: Message, state: FSMContext) -> None:
     args = message.text.split(maxsplit=1)
     referred_by = None
+
     if len(args) > 1 and args[1].startswith("ref_"):
         try:
             referred_by = int(args[1].removeprefix("ref_"))
@@ -117,16 +137,26 @@ async def cmd_start(message: Message, state: FSMContext) -> None:
 
 
 @router.callback_query(F.data == "forcejoin:check")
-async def check_subscription(callback: CallbackQuery, state: FSMContext) -> None:
+async def check_subscription(
+    callback: CallbackQuery,
+    state: FSMContext,
+) -> None:
     if not await is_subscribed(callback.bot, callback.from_user.id):
-        await callback.answer("❌ Шумо ҳанӯз ба канали мо обуна нашудед.", show_alert=True)
+        await callback.answer(
+            "❌ Шумо ҳанӯз ба канали мо обуна нашудед.",
+            show_alert=True,
+        )
         return
 
     await callback.answer("✅ Ташаккур барои обуна!")
+
     try:
-        await callback.message.edit_text("✅ Ташаккур! Шумо ба канал обуна шудед.")
+        await callback.message.edit_text(
+            "✅ Ташаккур! Шумо ба канал обуна шудед."
+        )
     except TelegramBadRequest:
         pass
+
     await _enter_bot(
         callback.message,
         callback.from_user.id,
@@ -137,7 +167,10 @@ async def check_subscription(callback: CallbackQuery, state: FSMContext) -> None
 
 
 @router.callback_query(F.data == "terms:accept")
-async def accept_terms_cb(callback: CallbackQuery, state: FSMContext) -> None:
+async def accept_terms_cb(
+    callback: CallbackQuery,
+    state: FSMContext,
+) -> None:
     async with get_session() as session:
         user = await get_user(session, callback.from_user.id)
         await accept_terms(session, user)
@@ -147,37 +180,60 @@ async def accept_terms_cb(callback: CallbackQuery, state: FSMContext) -> None:
         f"👋 Хуш омадед, {callback.from_user.full_name}!\n"
         f"🆔 ID-и шумо: {callback.from_user.id}"
     )
+
     await _show_main_menu(callback.message, state)
     await callback.answer()
 
 
 @router.callback_query(F.data == "menu:main")
-async def menu_main(callback: CallbackQuery, state: FSMContext) -> None:
+async def menu_main(
+    callback: CallbackQuery,
+    state: FSMContext,
+) -> None:
     await state.clear()
     await callback.message.edit_text(WELCOME_TEXT)
     await callback.answer()
 
 
 @router.message(F.text == "🎮 Бозиҳо")
-async def reply_games(message: Message, state: FSMContext) -> None:
+async def reply_games(
+    message: Message,
+    state: FSMContext,
+) -> None:
     await state.clear()
-    await message.answer("🎮 Бозиро интихоб кунед:", reply_markup=games_menu_keyboard())
+    await message.answer(
+        "🎮 Бозиро интихоб кунед:",
+        reply_markup=games_menu_keyboard(),
+    )
 
 
 @router.message(F.text == "✈️ Telegram")
-async def reply_telegram(message: Message, state: FSMContext) -> None:
+async def reply_telegram(
+    message: Message,
+    state: FSMContext,
+) -> None:
     await state.clear()
     await _open_catalog_message(
-        message, state, ProductCategory.TELEGRAM, "✈️ Бастаи Telegram Stars-ро интихоб кунед:"
+        message,
+        state,
+        ProductCategory.TELEGRAM,
+        "✈️ Бастаи Telegram Stars-ро интихоб кунед:",
     )
 
 
 @router.message(F.text == "👤 Профил")
-async def reply_profile(message: Message, state: FSMContext) -> None:
+async def reply_profile(
+    message: Message,
+    state: FSMContext,
+) -> None:
     await state.clear()
+
     async with get_session() as session:
         user = await get_user(session, message.from_user.id)
-        count, total = await get_user_purchase_stats(session, message.from_user.id)
+        count, total = await get_user_purchase_stats(
+            session,
+            message.from_user.id,
+        )
 
     text = (
         "👤 Профили шумо\n\n"
@@ -189,41 +245,72 @@ async def reply_profile(message: Message, state: FSMContext) -> None:
         f"💰 Маблағи умумии харид: {total:.2f} сомонӣ\n"
         f"🤝 Баланси реферал: {user.referral_balance:.2f} сомонӣ"
     )
-    await message.answer(text, reply_markup=profile_menu_keyboard())
+
+    await message.answer(
+        text,
+        reply_markup=profile_menu_keyboard(),
+    )
 
 
 @router.message(F.text == "🤝 Реферал")
-async def reply_referral(message: Message, state: FSMContext) -> None:
+async def reply_referral(
+    message: Message,
+    state: FSMContext,
+) -> None:
     await state.clear()
+
     bot_user = await message.bot.get_me()
-    link = f"https://t.me/{bot_user.username}?start=ref_{message.from_user.id}"
+    link = (
+        f"https://t.me/{bot_user.username}"
+        f"?start=ref_{message.from_user.id}"
+    )
 
     async with get_session() as session:
         user = await get_user(session, message.from_user.id)
-        invited = await count_referrals(session, message.from_user.id)
+        invited = await count_referrals(
+            session,
+            message.from_user.id,
+        )
 
     text = (
         "🤝 Барномаи рефералӣ\n\n"
         f"🔗 Линки даъвати шумо:\n{link}\n\n"
         f"👥 Даъватшудагон: {invited} нафар\n"
         f"💰 Балансӣ рефералӣ: {user.referral_balance:.2f} сомонӣ\n\n"
-        "🎁 Барои ҳар дӯсте, ки тавассути линки шумо ба бот ворид шуда, харидро анҷом медиҳад "
-        "(ва он аз ҷониби админ тасдиқ мешавад), шумо 5% аз маблағи хариди ӯро ҳамчун бонус мегиред.\n\n"
-        "💳 Бонуси ҷамъшуда ба балансии шумо илова мешавад ва метавонед онро барои пардохти "
-        "харидҳо дар бот истифода баред."
+        "🎁 Барои ҳар дӯсте, ки тавассути линки шумо ба бот ворид шуда, "
+        "харидро анҷом медиҳад "
+        "(ва он аз ҷониби админ тасдиқ мешавад), шумо 5% аз маблағи "
+        "хариди ӯро ҳамчун бонус мегиред.\n\n"
+        "💳 Бонуси ҷамъшуда ба балансии шумо илова мешавад ва метавонед "
+        "онро барои пардохти харидҳо дар бот истифода баред."
     )
-    await message.answer(text, reply_markup=referral_menu_keyboard())
+
+    await message.answer(
+        text,
+        reply_markup=referral_menu_keyboard(),
+    )
 
 
 @router.message(F.text == "⭐ Отзив")
-async def reply_review_channel(message: Message, state: FSMContext) -> None:
+async def reply_review_channel(
+    message: Message,
+    state: FSMContext,
+) -> None:
     await state.clear()
-    await message.answer("Шарҳҳои мизоҷони моро дар канал бинед:", reply_markup=review_channel_keyboard())
+
+    await message.answer(
+        "Шарҳҳои мизоҷони моро дар канал бинед:",
+        reply_markup=review_channel_keyboard(),
+    )
 
 
 @router.message(F.text == "🆘 Дастгирӣ")
-async def reply_contact(message: Message, state: FSMContext) -> None:
+async def reply_contact(
+    message: Message,
+    state: FSMContext,
+) -> None:
     await state.clear()
+
     await message.answer(
         "📞 Тамос бо мо — тугмаро зер кунед, мустақим кушода мешавад:\n\n"
         "🛡 Бехатар · 🎧 Дастгирии 24/7 · ⏱ Дар 1-5 дақиқа",
@@ -232,14 +319,25 @@ async def reply_contact(message: Message, state: FSMContext) -> None:
 
 
 @router.message(F.text == "❓ Саволҳои маъмул")
-async def reply_faq(message: Message, state: FSMContext) -> None:
+async def reply_faq(
+    message: Message,
+    state: FSMContext,
+) -> None:
     await state.clear()
-    await message.answer(FAQ_TEXT, reply_markup=back_to_menu_keyboard())
+
+    await message.answer(
+        FAQ_TEXT,
+        reply_markup=back_to_menu_keyboard(),
+    )
 
 
 @router.message(F.text == "ℹ️ Маълумот")
-async def reply_about(message: Message, state: FSMContext) -> None:
+async def reply_about(
+    message: Message,
+    state: FSMContext,
+) -> None:
     await state.clear()
+
     async with get_session() as session:
         users_count = await count_total_users(session)
         orders_count = await count_total_delivered_orders(session)
@@ -249,155 +347,324 @@ async def reply_about(message: Message, state: FSMContext) -> None:
         "🤖 Боти расмии фурӯши хидматҳои рақамӣ дар Тоҷикистон\n\n"
         "🎮 Хизматҳо: Free Fire diamonds, Telegram Stars\n"
         "🚀 Афзалиятҳо: суръати баланд (1-5 дақ.), бехатар\n\n"
-        f"📊 Корбарон: {users_count} | Фармоишҳои иҷрошуда: {orders_count}\n\n"
+        f"📊 Корбарон: {users_count} | "
+        f"Фармоишҳои иҷрошуда: {orders_count}\n\n"
         f"📢 Канал: {config.shop_channel_url}"
     )
-    await message.answer(text, reply_markup=back_to_menu_keyboard())
+
+    await message.answer(
+        text,
+        reply_markup=back_to_menu_keyboard(),
+    )
 
 
 async def _open_catalog_message(
-    message: Message, state: FSMContext, category: ProductCategory, title: str
+    message: Message,
+    state: FSMContext,
+    category: ProductCategory,
+    title: str,
 ) -> None:
     async with get_session() as session:
-        products = await list_active_products(session, category=category)
+        products = await list_active_products(
+            session,
+            category=category,
+        )
 
     if not products:
         await message.answer(
-            "Ҳозир маҳсулот дастрас нест. Лутфан баъдтар кӯшиш кунед ё бо админ тамос гиред.",
+            "Ҳозир маҳсулот дастрас нест. "
+            "Лутфан баъдтар кӯшиш кунед ё бо админ тамос гиред.",
             reply_markup=back_to_menu_keyboard(),
         )
         return
 
-    await message.answer(title, reply_markup=products_keyboard(products, category))
+    await message.answer(
+        title,
+        reply_markup=products_keyboard(products, category),
+    )
+
     await state.set_state(OrderFlow.choosing_product)
 
 
 @router.callback_query(F.data == "menu:games")
 async def menu_games(callback: CallbackQuery) -> None:
-    await callback.message.edit_text("🎮 Бозиро интихоб кунед:", reply_markup=games_menu_keyboard())
+    await callback.message.edit_text(
+        "🎮 Бозиро интихоб кунед:",
+        reply_markup=games_menu_keyboard(),
+    )
     await callback.answer()
 
 
-async def _open_catalog(callback: CallbackQuery, state: FSMContext, category: ProductCategory, title: str) -> None:
+async def _open_catalog(
+    callback: CallbackQuery,
+    state: FSMContext,
+    category: ProductCategory,
+    title: str,
+) -> None:
     async with get_session() as session:
-        products = await list_active_products(session, category=category)
+        products = await list_active_products(
+            session,
+            category=category,
+        )
 
     if not products:
         await callback.message.edit_text(
-            "Ҳозир маҳсулот дастрас нест. Лутфан баъдтар кӯшиш кунед ё бо админ тамос гиред.",
+            "Ҳозир маҳсулот дастрас нест. "
+            "Лутфан баъдтар кӯшиш кунед ё бо админ тамос гиред.",
             reply_markup=back_to_menu_keyboard(),
         )
         await callback.answer()
         return
 
-    await callback.message.edit_text(title, reply_markup=products_keyboard(products, category))
+    await callback.message.edit_text(
+        title,
+        reply_markup=products_keyboard(products, category),
+    )
+
     await state.set_state(OrderFlow.choosing_product)
     await callback.answer()
 
 
 @router.callback_query(F.data == "menu:buy_diamonds")
-async def menu_buy_diamonds(callback: CallbackQuery, state: FSMContext) -> None:
-    await _open_catalog(callback, state, ProductCategory.DIAMONDS, "💎 Бастаи алмази Free Fire-ро интихоб кунед:")
+async def menu_buy_diamonds(
+    callback: CallbackQuery,
+    state: FSMContext,
+) -> None:
+    await _open_catalog(
+        callback,
+        state,
+        ProductCategory.DIAMONDS,
+        "💎 Бастаи алмази Free Fire-ро интихоб кунед:",
+    )
 
 
 @router.callback_query(F.data == "menu:telegram")
-async def menu_telegram(callback: CallbackQuery, state: FSMContext) -> None:
-    await _open_catalog(callback, state, ProductCategory.TELEGRAM, "✈️ Бастаи Telegram Stars-ро интихоб кунед:")
+async def menu_telegram(
+    callback: CallbackQuery,
+    state: FSMContext,
+) -> None:
+    await _open_catalog(
+        callback,
+        state,
+        ProductCategory.TELEGRAM,
+        "✈️ Бастаи Telegram Stars-ро интихоб кунед:",
+    )
 
 
 @router.callback_query(F.data.regexp(r"^cartmode:(?!exit:).+$"))
-async def enter_cart_mode(callback: CallbackQuery, state: FSMContext) -> None:
-    category = ProductCategory(callback.data.split(":", 1)[1])
-    async with get_session() as session:
-        products = await list_active_products(session, category=category)
-
-    await state.update_data(cart_category=category.value, cart_ids=[])
-    await state.set_state(OrderFlow.choosing_cart)
-    await callback.message.edit_text(
-        "🛒 Бастаҳоеро, ки мехоҳед якҷоя харед, интихоб кунед (якчанд адад мумкин аст):",
-        reply_markup=cart_select_keyboard(products, category, set()),
+async def enter_cart_mode(
+    callback: CallbackQuery,
+    state: FSMContext,
+) -> None:
+    category = ProductCategory(
+        callback.data.split(":", 1)[1]
     )
+
+    async with get_session() as session:
+        products = await list_active_products(
+            session,
+            category=category,
+        )
+
+    await state.update_data(
+        cart_category=category.value,
+        cart_ids=[],
+    )
+
+    await state.set_state(OrderFlow.choosing_cart)
+
+    await callback.message.edit_text(
+        "🛒 Бастаҳоеро, ки мехоҳед якҷоя харед, "
+        "интихоб кунед (якчанд адад мумкин аст):",
+        reply_markup=cart_select_keyboard(
+            products,
+            category,
+            set(),
+        ),
+    )
+
     await callback.answer()
 
 
 @router.callback_query(F.data.startswith("cartmode:exit:"))
-async def exit_cart_mode(callback: CallbackQuery, state: FSMContext) -> None:
-    category = ProductCategory(callback.data.split(":", 2)[2])
+async def exit_cart_mode(
+    callback: CallbackQuery,
+    state: FSMContext,
+) -> None:
+    category = ProductCategory(
+        callback.data.split(":", 2)[2]
+    )
+
     title = (
         "💎 Бастаи алмази Free Fire-ро интихоб кунед:"
         if category == ProductCategory.DIAMONDS
         else "✈️ Бастаи Telegram Stars-ро интихоб кунед:"
     )
-    await _open_catalog(callback, state, category, title)
+
+    await _open_catalog(
+        callback,
+        state,
+        category,
+        title,
+    )
 
 
-@router.callback_query(OrderFlow.choosing_cart, F.data.startswith("cartitem:"))
-async def toggle_cart_item(callback: CallbackQuery, state: FSMContext) -> None:
-    product_id = int(callback.data.split(":", 1)[1])
+@router.callback_query(
+    OrderFlow.choosing_cart,
+    F.data.startswith("cartitem:"),
+)
+async def toggle_cart_item(
+    callback: CallbackQuery,
+    state: FSMContext,
+) -> None:
+    product_id = int(
+        callback.data.split(":", 1)[1]
+    )
+
     data = await state.get_data()
-    category = ProductCategory(data["cart_category"])
-    selected = set(data.get("cart_ids", []))
+
+    category = ProductCategory(
+        data["cart_category"]
+    )
+
+    selected = set(
+        data.get("cart_ids", [])
+    )
 
     if product_id in selected:
         selected.discard(product_id)
     else:
         selected.add(product_id)
-    await state.update_data(cart_ids=list(selected))
+
+    await state.update_data(
+        cart_ids=list(selected)
+    )
 
     async with get_session() as session:
-        products = await list_active_products(session, category=category)
+        products = await list_active_products(
+            session,
+            category=category,
+        )
 
-    await callback.message.edit_reply_markup(reply_markup=cart_select_keyboard(products, category, selected))
+    await callback.message.edit_reply_markup(
+        reply_markup=cart_select_keyboard(
+            products,
+            category,
+            selected,
+        )
+    )
+
     await callback.answer()
 
 
-@router.callback_query(OrderFlow.choosing_cart, F.data == "cart:checkout")
-async def cart_checkout(callback: CallbackQuery, state: FSMContext) -> None:
+@router.callback_query(
+    OrderFlow.choosing_cart,
+    F.data == "cart:checkout",
+)
+async def cart_checkout(
+    callback: CallbackQuery,
+    state: FSMContext,
+) -> None:
     data = await state.get_data()
+
     cart_ids = data.get("cart_ids", [])
+
     if not cart_ids:
-        await callback.answer("Аввал ҳадди ақал як маҳсулот интихоб кунед.", show_alert=True)
+        await callback.answer(
+            "Аввал ҳадди ақал як маҳсулот интихоб кунед.",
+            show_alert=True,
+        )
         return
 
-    category = ProductCategory(data["cart_category"])
+    category = ProductCategory(
+        data["cart_category"]
+    )
+
     async with get_session() as session:
-        products = [await get_product(session, pid) for pid in cart_ids]
-        last_recipient = await get_last_recipient(session, callback.from_user.id, category)
+        products = [
+            await get_product(session, pid)
+            for pid in cart_ids
+        ]
 
-    await state.update_data(cart_product_ids=cart_ids)
-    await state.set_state(OrderFlow.entering_player_id)
+        last_recipient = await get_last_recipient(
+            session,
+            callback.from_user.id,
+            category,
+        )
 
-    total = sum(p.price_somoni for p in products)
-    summary = "\n".join(f"• {p.diamonds}{p.unit_label}" for p in products)
+    await state.update_data(
+        cart_product_ids=cart_ids
+    )
+
+    await state.set_state(
+        OrderFlow.entering_player_id
+    )
+
+    total = sum(
+        p.price_somoni
+        for p in products
+    )
+
+    summary = "\n".join(
+        f"• {p.diamonds}{p.unit_label}"
+        for p in products
+    )
+
     prompt = await _recipient_prompt(category)
-    text = f"Шумо интихоб кардед:\n{summary}\n\n💰 Ҳамагӣ: {total:.2f} сомонӣ.\n\nЛутфан {prompt} ирсол кунед:"
+
+    text = (
+        f"Шумо интихоб кардед:\n{summary}\n\n"
+        f"💰 Ҳамагӣ: {total:.2f} сомонӣ.\n\n"
+        f"Лутфан {prompt} ирсол кунед:"
+    )
 
     if last_recipient:
-        text += f"\n\nШумо пештар бо ин истифода карда будед: {last_recipient}"
-        await callback.message.edit_text(text, reply_markup=reuse_recipient_keyboard(last_recipient))
+        text += (
+            f"\n\nШумо пештар бо ин истифода карда будед: "
+            f"{last_recipient}"
+        )
+
+        await callback.message.edit_text(
+            text,
+            reply_markup=reuse_recipient_keyboard(
+                last_recipient
+            ),
+        )
     else:
         await callback.message.edit_text(text)
+
     await callback.answer()
 
 
 @router.callback_query(F.data == "menu:contact")
-async def menu_contact(callback: CallbackQuery) -> None:
+async def menu_contact(
+    callback: CallbackQuery,
+) -> None:
     await callback.message.edit_text(
-        "📞 Тамос бо мо — тугмаро зер кунед, мустақим кушода мешавад:\n\n"
+        "📞 Тамос бо мо — тугмаро зер кунед, "
+        "мустақим кушода мешавад:\n\n"
         "🛡 Бехатар · 🎧 Дастгирии 24/7 · ⏱ Дар 1-5 дақиқа",
         reply_markup=contact_keyboard(),
     )
+
     await callback.answer()
 
 
 @router.callback_query(F.data == "menu:faq")
-async def menu_faq(callback: CallbackQuery) -> None:
-    await callback.message.edit_text(FAQ_TEXT, reply_markup=back_to_menu_keyboard())
+async def menu_faq(
+    callback: CallbackQuery,
+) -> None:
+    await callback.message.edit_text(
+        FAQ_TEXT,
+        reply_markup=back_to_menu_keyboard(),
+    )
     await callback.answer()
 
 
 @router.callback_query(F.data == "menu:about")
-async def menu_about(callback: CallbackQuery) -> None:
+async def menu_about(
+    callback: CallbackQuery,
+) -> None:
     async with get_session() as session:
         users_count = await count_total_users(session)
         orders_count = await count_total_delivered_orders(session)
@@ -407,18 +674,33 @@ async def menu_about(callback: CallbackQuery) -> None:
         "🤖 Боти расмии фурӯши хидматҳои рақамӣ дар Тоҷикистон\n\n"
         "🎮 Хизматҳо: Free Fire diamonds, Telegram Stars\n"
         "🚀 Афзалиятҳо: суръати баланд (1-5 дақ.), бехатар\n\n"
-        f"📊 Корбарон: {users_count} | Фармоишҳои иҷрошуда: {orders_count}\n\n"
+        f"📊 Корбарон: {users_count} | "
+        f"Фармоишҳои иҷрошуда: {orders_count}\n\n"
         f"📢 Канал: {config.shop_channel_url}"
     )
-    await callback.message.edit_text(text, reply_markup=back_to_menu_keyboard())
+
+    await callback.message.edit_text(
+        text,
+        reply_markup=back_to_menu_keyboard(),
+    )
+
     await callback.answer()
 
 
 @router.callback_query(F.data == "menu:profile")
-async def menu_profile(callback: CallbackQuery) -> None:
+async def menu_profile(
+    callback: CallbackQuery,
+) -> None:
     async with get_session() as session:
-        user = await get_user(session, callback.from_user.id)
-        count, total = await get_user_purchase_stats(session, callback.from_user.id)
+        user = await get_user(
+            session,
+            callback.from_user.id,
+        )
+
+        count, total = await get_user_purchase_stats(
+            session,
+            callback.from_user.id,
+        )
 
     text = (
         "👤 Профили шумо\n\n"
@@ -430,190 +712,464 @@ async def menu_profile(callback: CallbackQuery) -> None:
         f"💰 Маблағи умумии харид: {total:.2f} сомонӣ\n"
         f"🤝 Баланси реферал: {user.referral_balance:.2f} сомонӣ"
     )
-    await callback.message.edit_text(text, reply_markup=profile_menu_keyboard())
+
+    await callback.message.edit_text(
+        text,
+        reply_markup=profile_menu_keyboard(),
+    )
+
     await callback.answer()
 
 
 @router.callback_query(F.data == "menu:referral")
-async def menu_referral(callback: CallbackQuery) -> None:
+async def menu_referral(
+    callback: CallbackQuery,
+) -> None:
     bot_user = await callback.bot.get_me()
-    link = f"https://t.me/{bot_user.username}?start=ref_{callback.from_user.id}"
+
+    link = (
+        f"https://t.me/{bot_user.username}"
+        f"?start=ref_{callback.from_user.id}"
+    )
 
     async with get_session() as session:
-        user = await get_user(session, callback.from_user.id)
-        invited = await count_referrals(session, callback.from_user.id)
+        user = await get_user(
+            session,
+            callback.from_user.id,
+        )
+
+        invited = await count_referrals(
+            session,
+            callback.from_user.id,
+        )
 
     text = (
         "🤝 Барномаи рефералӣ\n\n"
         f"🔗 Линки даъвати шумо:\n{link}\n\n"
         f"👥 Даъватшудагон: {invited} нафар\n"
         f"💰 Балансӣ рефералӣ: {user.referral_balance:.2f} сомонӣ\n\n"
-        "🎁 Барои ҳар дӯсте, ки тавассути линки шумо ба бот ворид шуда, харидро анҷом медиҳад "
-        "(ва он аз ҷониби админ тасдиқ мешавад), шумо 5% аз маблағи хариди ӯро ҳамчун бонус мегиред.\n\n"
-        "💳 Бонуси ҷамъшуда ба балансии шумо илова мешавад ва метавонед онро барои пардохти "
-        "харидҳо дар бот истифода баред."
+        "🎁 Барои ҳар дӯсте, ки тавассути линки шумо ба бот ворид шуда, "
+        "харидро анҷом медиҳад "
+        "(ва он аз ҷониби админ тасдиқ мешавад), шумо 5% аз маблағи "
+        "хариди ӯро ҳамчун бонус мегиред.\n\n"
+        "💳 Бонуси ҷамъшуда ба балансии шумо илова мешавад ва метавонед "
+        "онро барои пардохти харидҳо дар бот истифода баред."
     )
-    await callback.message.edit_text(text, reply_markup=referral_menu_keyboard())
+
+    await callback.message.edit_text(
+        text,
+        reply_markup=referral_menu_keyboard(),
+    )
+
     await callback.answer()
 
 
 @router.callback_query(F.data == "menu:top_buyers")
-async def menu_top_buyers(callback: CallbackQuery) -> None:
+async def menu_top_buyers(
+    callback: CallbackQuery,
+) -> None:
     medals = ["🥇", "🥈", "🥉"]
+
     async with get_session() as session:
-        rows = await top_buyers(session, limit=10)
-        rank = await get_buyer_rank(session, callback.from_user.id)
+        rows = await top_buyers(
+            session,
+            limit=10,
+        )
+
+        rank = await get_buyer_rank(
+            session,
+            callback.from_user.id,
+        )
 
     lines = ["🏆 Топ харидорон\n"]
+
     for i, (user, count, total) in enumerate(rows):
-        icon = medals[i] if i < 3 else f"{i + 1}."
-        name = f"@{user.username}" if user.username else (user.full_name or f"ID{user.id}")
-        lines.append(f"{icon} {name} — {count} харид · {total:.2f} сомонӣ")
+        icon = (
+            medals[i]
+            if i < 3
+            else f"{i + 1}."
+        )
+
+        name = (
+            f"@{user.username}"
+            if user.username
+            else (
+                user.full_name
+                or f"ID{user.id}"
+            )
+        )
+
+        lines.append(
+            f"{icon} {name} — "
+            f"{count} харид · "
+            f"{total:.2f} сомонӣ"
+        )
 
     if rank:
-        lines.append(f"\n👤 Шумо: {rank}-ҷой")
+        lines.append(
+            f"\n👤 Шумо: {rank}-ҷой"
+        )
 
-    await callback.message.edit_text("\n".join(lines), reply_markup=back_to_menu_keyboard())
+    await callback.message.edit_text(
+        "\n".join(lines),
+        reply_markup=back_to_menu_keyboard(),
+    )
+
     await callback.answer()
 
 
 @router.callback_query(F.data == "menu:top_referrers")
-async def menu_top_referrers(callback: CallbackQuery) -> None:
+async def menu_top_referrers(
+    callback: CallbackQuery,
+) -> None:
     medals = ["🥇", "🥈", "🥉"]
+
     async with get_session() as session:
-        rows = await top_referrers(session, limit=10)
+        rows = await top_referrers(
+            session,
+            limit=10,
+        )
 
     lines = ["🎖 Топ рефералдорон\n"]
-    if not rows:
-        lines.append("Ҳанӯз ҳеҷ кас дӯст даъват накардааст.")
-    for i, (user, count) in enumerate(rows):
-        icon = medals[i] if i < 3 else f"{i + 1}."
-        name = f"@{user.username}" if user.username else (user.full_name or f"ID{user.id}")
-        lines.append(f"{icon} {name} — {count} даъват")
 
-    await callback.message.edit_text("\n".join(lines), reply_markup=back_to_menu_keyboard())
+    if not rows:
+        lines.append(
+            "Ҳанӯз ҳеҷ кас дӯст даъват накардааст."
+        )
+
+    for i, (user, count) in enumerate(rows):
+        icon = (
+            medals[i]
+            if i < 3
+            else f"{i + 1}."
+        )
+
+        name = (
+            f"@{user.username}"
+            if user.username
+            else (
+                user.full_name
+                or f"ID{user.id}"
+            )
+        )
+
+        lines.append(
+            f"{icon} {name} — {count} даъват"
+        )
+
+    await callback.message.edit_text(
+        "\n".join(lines),
+        reply_markup=back_to_menu_keyboard(),
+    )
+
     await callback.answer()
 
 
 @router.callback_query(F.data == "menu:myorders")
-async def menu_myorders(callback: CallbackQuery) -> None:
-    text = await _format_orders_text(callback.from_user.id)
-    await callback.message.edit_text(text, reply_markup=back_to_menu_keyboard())
+async def menu_myorders(
+    callback: CallbackQuery,
+) -> None:
+    text = await _format_orders_text(
+        callback.from_user.id
+    )
+
+    await callback.message.edit_text(
+        text,
+        reply_markup=back_to_menu_keyboard(),
+    )
+
     await callback.answer()
 
 
-async def _recipient_prompt(category: ProductCategory) -> str:
+async def _recipient_prompt(
+    category: ProductCategory,
+) -> str:
     return (
-        "ID-и бозингари Free Fire-и худро (рақаме, ки дар профили худ мебинед)"
+        "ID-и бозингари Free Fire-и худро "
+        "(рақаме, ки дар профили худ мебинед)"
         if category == ProductCategory.DIAMONDS
         else "Username-и Telegram-и худро (бе @)"
     )
 
 
-@router.callback_query(OrderFlow.choosing_product, F.data.regexp(r"^product:\d+$"))
-async def choose_product(callback: CallbackQuery, state: FSMContext) -> None:
-    product_id = int(callback.data.split(":", 1)[1])
+@router.callback_query(
+    OrderFlow.choosing_product,
+    F.data.regexp(r"^product:\d+$"),
+)
+async def choose_product(
+    callback: CallbackQuery,
+    state: FSMContext,
+) -> None:
+    product_id = int(
+        callback.data.split(":", 1)[1]
+    )
+
     async with get_session() as session:
-        product = await get_product(session, product_id)
+        product = await get_product(
+            session,
+            product_id,
+        )
+
         if product is not None:
-            last_recipient = await get_last_recipient(session, callback.from_user.id, product.category)
+            last_recipient = await get_last_recipient(
+                session,
+                callback.from_user.id,
+                product.category,
+            )
 
     if product is None or not product.is_active:
-        await callback.answer("Ин маҳсулот дастрас нест.", show_alert=True)
+        await callback.answer(
+            "Ин маҳсулот дастрас нест.",
+            show_alert=True,
+        )
         return
 
-    await state.update_data(product_id=product.id)
-    await state.set_state(OrderFlow.entering_player_id)
-    prompt = await _recipient_prompt(product.category)
+    await state.update_data(
+        product_id=product.id
+    )
+
+    await state.set_state(
+        OrderFlow.entering_player_id
+    )
+
+    prompt = await _recipient_prompt(
+        product.category
+    )
+
     text = (
-        f"Шумо интихоб кардед: {product.diamonds} {product.unit_label} — {product.price_somoni:.2f} сомонӣ.\n\n"
+        f"Шумо интихоб кардед: "
+        f"{product.diamonds} {product.unit_label} — "
+        f"{product.price_somoni:.2f} сомонӣ.\n\n"
         f"Лутфан {prompt} ирсол кунед:"
     )
+
     if last_recipient:
-        text += f"\n\nШумо пештар бо ин истифода карда будед: {last_recipient}"
-        await callback.message.edit_text(text, reply_markup=reuse_recipient_keyboard(last_recipient))
+        text += (
+            f"\n\nШумо пештар бо ин истифода карда будед: "
+            f"{last_recipient}"
+        )
+
+        await callback.message.edit_text(
+            text,
+            reply_markup=reuse_recipient_keyboard(
+                last_recipient
+            ),
+        )
     else:
         await callback.message.edit_text(text)
+
     await callback.answer()
 
 
-async def _finalize_recipient(state: FSMContext, user_id: int, recipient: str, answer_target) -> None:
+async def _finalize_recipient(
+    state: FSMContext,
+    user_id: int,
+    recipient: str,
+    answer_target,
+) -> None:
     data = await state.get_data()
     cart_ids = data.get("cart_product_ids")
 
     async with get_session() as session:
-        user = await get_user(session, user_id)
+        user = await get_user(
+            session,
+            user_id,
+        )
+
         if cart_ids:
-            products = [await get_product(session, pid) for pid in cart_ids]
+            products = [
+                await get_product(
+                    session,
+                    pid,
+                )
+                for pid in cart_ids
+            ]
         else:
-            products = [await get_product(session, data["product_id"])]
+            products = [
+                await get_product(
+                    session,
+                    data["product_id"],
+                )
+            ]
 
-    await state.update_data(ff_player_id=recipient)
-    await state.set_state(OrderFlow.confirming)
+    await state.update_data(
+        ff_player_id=recipient
+    )
 
-    total_price = sum(p.price_somoni for p in products)
-    offer_balance = user is not None and user.referral_balance >= total_price > 0
+    await state.set_state(
+        OrderFlow.confirming
+    )
+
+    total_price = sum(
+        p.price_somoni
+        for p in products
+    )
+
+    offer_balance = (
+        user is not None
+        and user.referral_balance >= total_price > 0
+    )
+
     category = products[0].category
 
     player_name = None
-    if category == ProductCategory.DIAMONDS:
-        mapped = next((p for p in products if p.fzr_category_id), None)
-        if mapped:
-            player_name = await _try_validate_player_id(mapped.fzr_category_id, recipient)
 
-    recipient_label = "🆔 ID" if category == ProductCategory.DIAMONDS else "📱 Username"
-    confirm_lines = ["🛒 <b>Тасдиқи фармоиш</b>\n", f"{recipient_label}: {recipient}"]
+    if category == ProductCategory.DIAMONDS:
+        mapped = next(
+            (
+                p
+                for p in products
+                if p.fzr_category_id
+            ),
+            None,
+        )
+
+        if mapped:
+            player_name = await _try_validate_player_id(
+                mapped.fzr_category_id,
+                recipient,
+            )
+
+    recipient_label = (
+        "🆔 ID"
+        if category == ProductCategory.DIAMONDS
+        else "📱 Username"
+    )
+
+    confirm_lines = [
+        "🛒 <b>Тасдиқи фармоиш</b>\n",
+        f"{recipient_label}: {recipient}",
+    ]
+
     if player_name:
-        confirm_lines.append(f"👤 Ном: <b>{html.escape(player_name)}</b>")
+        confirm_lines.append(
+            f"👤 Ном: <b>{html.escape(player_name)}</b>"
+        )
+
     confirm_lines.append("")
 
     for p in products:
-        bonus = f" (+{p.bonus_diamonds})" if p.bonus_diamonds else ""
-        confirm_lines.append(f"🎁 Маҳсулот: {p.diamonds}{bonus}{p.unit_label}")
-    if len(products) > 1:
-        confirm_lines.append(f"💰 Ҳамагӣ: <b>{total_price:.2f} сомонӣ</b>")
-    else:
-        confirm_lines.append(f"💰 Нарх: <b>{products[0].price_somoni:.2f} сомонӣ</b>")
+        bonus = (
+            f" (+{p.bonus_diamonds})"
+            if p.bonus_diamonds
+            else ""
+        )
 
-    confirm_lines.append("\nҲама дуруст аст?")
+        confirm_lines.append(
+            f"🎁 Маҳсулот: "
+            f"{p.diamonds}"
+            f"{bonus}"
+            f"{p.unit_label}"
+        )
+
+    if len(products) > 1:
+        confirm_lines.append(
+            f"💰 Ҳамагӣ: "
+            f"<b>{total_price:.2f} сомонӣ</b>"
+        )
+    else:
+        confirm_lines.append(
+            f"💰 Нарх: "
+            f"<b>{products[0].price_somoni:.2f} сомонӣ</b>"
+        )
+
+    confirm_lines.append(
+        "\nҲама дуруст аст?"
+    )
+
     await answer_target.answer(
         "\n".join(confirm_lines),
-        reply_markup=confirm_order_keyboard(offer_balance_payment=offer_balance),
+        reply_markup=confirm_order_keyboard(
+            offer_balance_payment=offer_balance
+        ),
     )
 
 
-@router.message(OrderFlow.entering_player_id, F.text)
-async def enter_player_id(message: Message, state: FSMContext) -> None:
+@router.message(
+    OrderFlow.entering_player_id,
+    F.text,
+)
+async def enter_player_id(
+    message: Message,
+    state: FSMContext,
+) -> None:
     data = await state.get_data()
     cart_ids = data.get("cart_product_ids")
+
     async with get_session() as session:
-        product = await get_product(session, cart_ids[0] if cart_ids else data["product_id"])
+        product = await get_product(
+            session,
+            cart_ids[0]
+            if cart_ids
+            else data["product_id"],
+        )
 
     recipient = message.text.strip()
 
     if product.category == ProductCategory.DIAMONDS:
-        if not recipient.isdigit() or not (5 <= len(recipient) <= 15):
-            await message.answer("ID-и нодуруст. Лутфан танҳо рақамҳои ID-и бозингари Free Fire-ро ворид кунед.")
+        if (
+            not recipient.isdigit()
+            or not (5 <= len(recipient) <= 15)
+        ):
+            await message.answer(
+                "ID-и нодуруст. Лутфан танҳо рақамҳои "
+                "ID-и бозингари Free Fire-ро ворид кунед."
+            )
             return
     else:
         recipient = recipient.removeprefix("@")
-        if not (5 <= len(recipient) <= 32) or not recipient.replace("_", "").isalnum():
-            await message.answer("Username-и нодуруст. Лутфан username-и дурусти Telegram-ро (бе @) нависед.")
+
+        if (
+            not (5 <= len(recipient) <= 32)
+            or not recipient.replace("_", "").isalnum()
+        ):
+            await message.answer(
+                "Username-и нодуруст. Лутфан username-и "
+                "дурусти Telegram-ро (бе @) нависед."
+            )
             return
 
-    await _finalize_recipient(state, message.from_user.id, recipient, message)
+    await _finalize_recipient(
+        state,
+        message.from_user.id,
+        recipient,
+        message,
+    )
 
 
-@router.callback_query(OrderFlow.entering_player_id, F.data.startswith("reuseid:"))
-async def reuse_saved_id(callback: CallbackQuery, state: FSMContext) -> None:
-    recipient = callback.data.split(":", 1)[1]
-    await _finalize_recipient(state, callback.from_user.id, recipient, callback.message)
+@router.callback_query(
+    OrderFlow.entering_player_id,
+    F.data.startswith("reuseid:"),
+)
+async def reuse_saved_id(
+    callback: CallbackQuery,
+    state: FSMContext,
+) -> None:
+    recipient = callback.data.split(
+        ":",
+        1,
+    )[1]
+
+    await _finalize_recipient(
+        state,
+        callback.from_user.id,
+        recipient,
+        callback.message,
+    )
+
     await callback.answer()
 
 
-async def _try_validate_player_id(fzr_category_id: str, player_id: str) -> str | None:
+async def _try_validate_player_id(
+    fzr_category_id: str,
+    player_id: str,
+) -> str | None:
     from bot.services.delivery import guess_id_field_key
-    from bot.services.fazercards import FazerCardsError, list_validate_id_categories, validate_player_id
+    from bot.services.fazercards import (
+        FazerCardsError,
+        list_validate_id_categories,
+        validate_player_id,
+    )
 
     try:
         supported = await list_validate_id_categories()
@@ -627,55 +1183,129 @@ async def _try_validate_player_id(fzr_category_id: str, player_id: str) -> str |
             if i.get("category_id")
             and (
                 fzr_category_id == i["category_id"]
-                or fzr_category_id.startswith(i["category_id"] + "_")
+                or fzr_category_id.startswith(
+                    i["category_id"] + "_"
+                )
             )
         ),
         None,
     )
+
     if item is None:
         return None
 
-    field_key = guess_id_field_key(item.get("fields", []))
+    field_key = guess_id_field_key(
+        item.get("fields", [])
+    )
+
     if field_key is None:
         return None
 
     try:
-        result = await validate_player_id(item["category_id"], {field_key: player_id})
+        result = await validate_player_id(
+            item["category_id"],
+            {field_key: player_id},
+        )
     except FazerCardsError:
         return None
 
-    return result.get("player_name") if result.get("valid") else None
+    return (
+        result.get("player_name")
+        if result.get("valid")
+        else None
+    )
 
 
-@router.callback_query(OrderFlow.confirming, F.data == "order:cancel")
-async def cancel_order(callback: CallbackQuery, state: FSMContext) -> None:
+@router.callback_query(
+    OrderFlow.confirming,
+    F.data == "order:cancel",
+)
+async def cancel_order(
+    callback: CallbackQuery,
+    state: FSMContext,
+) -> None:
     await state.clear()
-    await callback.message.edit_text("Фармоиш бекор карда шуд.")
+
+    await callback.message.edit_text(
+        "Фармоиш бекор карда шуд."
+    )
+
     await callback.answer()
 
 
-async def _cart_products(session, data: dict) -> list[Product]:
-    cart_ids = data.get("cart_product_ids")
+async def _cart_products(
+    session,
+    data: dict,
+) -> list[Product]:
+    cart_ids = data.get(
+        "cart_product_ids"
+    )
+
     if cart_ids:
-        return [await get_product(session, pid) for pid in cart_ids]
-    return [await get_product(session, data["product_id"])]
+        return [
+            await get_product(
+                session,
+                pid,
+            )
+            for pid in cart_ids
+        ]
+
+    return [
+        await get_product(
+            session,
+            data["product_id"],
+        )
+    ]
 
 
-@router.callback_query(OrderFlow.confirming, F.data == "order:pay_balance")
-async def pay_with_balance(callback: CallbackQuery, state: FSMContext) -> None:
+@router.callback_query(
+    OrderFlow.confirming,
+    F.data == "order:pay_balance",
+)
+async def pay_with_balance(
+    callback: CallbackQuery,
+    state: FSMContext,
+) -> None:
     data = await state.get_data()
 
     async with get_session() as session:
-        products = await _cart_products(session, data)
-        total = sum(p.price_somoni for p in products)
-        user = await get_user(session, callback.from_user.id)
+        products = await _cart_products(
+            session,
+            data,
+        )
 
-        if user is None or user.referral_balance < total:
-            await callback.answer("Баланси реферал кофӣ нест.", show_alert=True)
+        total = sum(
+            p.price_somoni
+            for p in products
+        )
+
+        user = await get_user(
+            session,
+            callback.from_user.id,
+        )
+
+        if (
+            user is None
+            or user.referral_balance < total
+        ):
+            await callback.answer(
+                "Баланси реферал кофӣ нест.",
+                show_alert=True,
+            )
             return
 
-        await deduct_referral_balance(session, user, total)
-        group_id = uuid.uuid4().hex if len(products) > 1 else None
+        await deduct_referral_balance(
+            session,
+            user,
+            total,
+        )
+
+        group_id = (
+            uuid.uuid4().hex
+            if len(products) > 1
+            else None
+        )
+
         orders = [
             await create_order(
                 session,
@@ -690,33 +1320,65 @@ async def pay_with_balance(callback: CallbackQuery, state: FSMContext) -> None:
         ]
 
     primary = orders[0]
-    summary = "\n".join(f"📦 {p.diamonds}{p.unit_label} — {p.price_somoni:.2f} сомонӣ" for p in products)
+
+    summary = "\n".join(
+        f"📦 {p.diamonds}{p.unit_label} — "
+        f"{p.price_somoni:.2f} сомонӣ"
+        for p in products
+    )
+
     if config.admin_chat_id:
         await callback.bot.send_message(
             config.admin_chat_id,
-            f"🆕 Фармоиши #{primary.id} (пардохт аз баланси реферал — тасдиқшуда)\n"
-            f"👤 Мизоҷ: {callback.from_user.full_name} (@{callback.from_user.username or '—'}, id={callback.from_user.id})\n"
+            f"🆕 Фармоиши #{primary.id} "
+            f"(пардохт аз баланси реферал — тасдиқшуда)\n"
+            f"👤 Мизоҷ: "
+            f"{callback.from_user.full_name} "
+            f"(@{callback.from_user.username or '—'}, "
+            f"id={callback.from_user.id})\n"
             f"{summary}\n"
             f"🎮 {primary.ff_player_id}\n\n"
-            f"Лутфан иҷро карда, 'Delivered'-ро зер кунед.",
-            reply_markup=admin_order_keyboard(primary),
+            f"Лутфан иҷро карда, "
+            f"'Delivered'-ро зер кунед.",
+            reply_markup=admin_order_keyboard(
+                primary
+            ),
         )
 
     await state.clear()
+
     await callback.message.edit_text(
-        f"✅ Фармоиши #{primary.id} бо баланси реферал пардохт шуд!\n"
-        f"{summary}\n\nДар 1-5 дақиқа ба шумо мерасад."
+        f"✅ Фармоиши #{primary.id} "
+        f"бо баланси реферал пардохт шуд!\n"
+        f"{summary}\n\n"
+        f"Дар 1-5 дақиқа ба шумо мерасад."
     )
+
     await callback.answer()
 
 
-@router.callback_query(OrderFlow.confirming, F.data == "order:confirm")
-async def confirm_order(callback: CallbackQuery, state: FSMContext) -> None:
+@router.callback_query(
+    OrderFlow.confirming,
+    F.data == "order:confirm",
+)
+async def confirm_order(
+    callback: CallbackQuery,
+    state: FSMContext,
+) -> None:
     data = await state.get_data()
 
     async with get_session() as session:
-        products = await _cart_products(session, data)
-        group_id = uuid.uuid4().hex if len(products) > 1 else None
+        products = await _cart_products(
+            session,
+            data,
+        )
+
+        group_id = (
+            uuid.uuid4().hex
+            if len(products) > 1
+            else None
+        )
+
         orders = [
             await create_order(
                 session,
@@ -728,45 +1390,79 @@ async def confirm_order(callback: CallbackQuery, state: FSMContext) -> None:
             )
             for p in products
         ]
+
         primary = orders[0]
-        total = sum(o.amount_somoni for o in orders)
+
+        total = sum(
+            o.amount_somoni
+            for o in orders
+        )
+
         if len(orders) > 1:
             primary.amount_somoni = total
+
             for o in orders[1:]:
                 o.amount_somoni = 0.0
+
             await session.commit()
             await session.refresh(primary)
 
-    await state.update_data(order_id=primary.id)
-    await state.set_state(OrderFlow.awaiting_payment_proof)
+    await state.update_data(
+        order_id=primary.id
+    )
+
+    await state.set_state(
+        OrderFlow.awaiting_payment_proof
+    )
 
     await callback.message.edit_text(
         f"🧾 Фармоиши #{primary.id} сабт шуд.\n\n"
-        f"💰 Маблағи пардохт: <b>{total:.2f} сомонӣ</b>\n\n"
+        f"💰 Маблағи пардохт: "
+        f"<b>{total:.2f} сомонӣ</b>\n\n"
         "🏦 Усули пардохтро интихоб кунед:",
         reply_markup=payment_methods_keyboard(),
         parse_mode="HTML",
     )
+
     await callback.answer()
 
 
-@router.callback_query(OrderFlow.awaiting_payment_proof, F.data.startswith("payment:"))
-async def select_payment_method(callback: CallbackQuery, state: FSMContext) -> None:
-    method = callback.data.split(":", 1)[1]
+@router.callback_query(
+    OrderFlow.awaiting_payment_proof,
+    F.data.startswith("payment:"),
+)
+async def select_payment_method(
+    callback: CallbackQuery,
+    state: FSMContext,
+) -> None:
+    method = callback.data.split(
+        ":",
+        1,
+    )[1]
+
     data = await state.get_data()
     order_id = data.get("order_id")
 
     if not order_id:
-        await callback.answer("Фармоиш ёфт нашуд.", show_alert=True)
+        await callback.answer(
+            "Фармоиш ёфт нашуд.",
+            show_alert=True,
+        )
         return
 
     from bot.db.repo import get_order
 
     async with get_session() as session:
-        order = await get_order(session, order_id)
+        order = await get_order(
+            session,
+            order_id,
+        )
 
     if order is None:
-        await callback.answer("Фармоиш ёфт нашуд.", show_alert=True)
+        await callback.answer(
+            "Фармоиш ёфт нашуд.",
+            show_alert=True,
+        )
         return
 
     amount = order.amount_somoni
@@ -776,36 +1472,59 @@ async def select_payment_method(callback: CallbackQuery, state: FSMContext) -> N
             "🏙️ <b>Душанбе Сити</b>\n\n"
             "💳 Рақами корт:\n"
             "<code>9762000199761387</code>\n\n"
-            f"💰 Маблағ:\n<b>{amount:.2f} сомонӣ</b>\n\n"
-            "⚠️ Маблағро айнан ҳамин қадар фиристед — на кам ва на зиёд.\n"
+            f"💰 Маблағ:\n"
+            f"<b>{amount:.2f} сомонӣ</b>\n\n"
+            "⚠️ Маблағро айнан ҳамин қадар фиристед — "
+            "на кам ва на зиёд.\n"
             "Баъд скриншоти расиди пардохтро ба бот фиристед."
         )
+
     elif method == "alif":
         text = (
             "🟢 <b>Alif</b>\n\n"
             "📱 Рақами қабулкунанда:\n"
             "<code>976820008</code>\n\n"
-            f"💰 Маблағ:\n<b>{amount:.2f} сомонӣ</b>\n\n"
-            "⚠️ Маблағро айнан ҳамин қадар фиристед — на кам ва на зиёд.\n"
+            f"💰 Маблағ:\n"
+            f"<b>{amount:.2f} сомонӣ</b>\n\n"
+            "⚠️ Маблағро айнан ҳамин қадар фиристед — "
+            "на кам ва на зиёд.\n"
             "Баъд скриншоти расиди пардохтро ба бот фиристед."
         )
+
     elif method == "eskhata":
         text = (
             "🔵 <b>Eskhata</b>\n\n"
-            "❗️ Рақами қабулкунандаи Эсхата ҳоло дар бот танзим нашудааст.\n\n"
-            f"💰 Маблағ:\n<b>{amount:.2f} сомонӣ</b>\n\n"
-            "Рақами қабулкунанда баъд аз танзим дар ҳамин ҷо нишон дода мешавад."
+            "📱 Рақами қабулкунанда:\n"
+            "<code>976820008</code>\n\n"
+            f"💰 Маблағ:\n"
+            f"<b>{amount:.2f} сомонӣ</b>\n\n"
+            "⚠️ Маблағро айнан ҳамин қадар фиристед — "
+            "на кам ва на зиёд.\n"
+            "Баъд скриншоти расиди пардохтро ба бот фиристед."
         )
+
     else:
-        await callback.answer("Усули пардохт нодуруст аст.", show_alert=True)
+        await callback.answer(
+            "Усули пардохт нодуруст аст.",
+            show_alert=True,
+        )
         return
 
-    await callback.message.edit_text(text, parse_mode="HTML")
+    await callback.message.edit_text(
+        text,
+        parse_mode="HTML",
+    )
+
     await callback.answer()
 
 
-@router.message(OrderFlow.awaiting_payment_proof)
-async def receive_payment_proof(message: Message, state: FSMContext) -> None:
+@router.message(
+    OrderFlow.awaiting_payment_proof
+)
+async def receive_payment_proof(
+    message: Message,
+    state: FSMContext,
+) -> None:
     import hashlib
 
     from bot.db.repo import (
@@ -818,47 +1537,108 @@ async def receive_payment_proof(message: Message, state: FSMContext) -> None:
 
     data = await state.get_data()
     order_id = data.get("order_id")
+
     if not order_id:
         return
 
     if not message.photo and not message.document:
-        await message.answer("Лутфан расми (скриншот)-и расиди пардохтро равон кунед — на матн.")
+        await message.answer(
+            "Лутфан расми (скриншот)-и расиди пардохтро "
+            "равон кунед — на матн."
+        )
         return
 
     async with get_session() as session:
-        order = await get_order(session, order_id)
-        group = await get_orders_by_group(session, order.cart_group_id) if order.cart_group_id else [order]
+        order = await get_order(
+            session,
+            order_id,
+        )
+
+        group = (
+            await get_orders_by_group(
+                session,
+                order.cart_group_id,
+            )
+            if order.cart_group_id
+            else [order]
+        )
+
         items_summary = ""
+
         if len(group) > 1:
-            products = [await get_product(session, o.product_id) for o in group]
+            products = [
+                await get_product(
+                    session,
+                    o.product_id,
+                )
+                for o in group
+            ]
+
             items_summary = "\n" + "\n".join(
-                f"📦 {p.diamonds}{p.unit_label} — {o.amount_somoni:.2f} сомонӣ"
-                if o.amount_somoni
-                else f"📦 {p.diamonds}{p.unit_label}"
-                for o, p in zip(group, products)
+                (
+                    f"📦 {p.diamonds}{p.unit_label} — "
+                    f"{o.amount_somoni:.2f} сомонӣ"
+                    if o.amount_somoni
+                    else
+                    f"📦 {p.diamonds}{p.unit_label}"
+                )
+                for o, p in zip(
+                    group,
+                    products,
+                )
             )
 
     caption = (
         f"🆕 Фармоиши #{order_id}{items_summary}\n"
-        f"👤 Мизоҷ: {message.from_user.full_name} (@{message.from_user.username or '—'}, id={message.from_user.id})\n"
+        f"👤 Мизоҷ: "
+        f"{message.from_user.full_name} "
+        f"(@{message.from_user.username or '—'}, "
+        f"id={message.from_user.id})\n"
         "Расиди пардохт замима шуд.\n\n"
-        "❗️ Пеш аз тасдиқ, ҳатман дар аппи бонки худ маблағи воқеиро санҷед — расм танҳо кофӣ нест."
+        "❗️ Пеш аз тасдиқ, ҳатман дар аппи бонки худ "
+        "маблағи воқеиро санҷед — расм танҳо кофӣ нест."
     )
 
     async with get_session() as session:
-        order = await get_order(session, order_id)
+        order = await get_order(
+            session,
+            order_id,
+        )
 
         if message.photo:
-            file_bytes = await message.bot.download(message.photo[-1].file_id)
-            proof_hash = hashlib.sha256(file_bytes.read()).hexdigest()
-            duplicate = await find_duplicate_proof(session, proof_hash, order_id)
-            order = await set_payment_proof_hash(session, order, proof_hash)
+            file_bytes = await message.bot.download(
+                message.photo[-1].file_id
+            )
+
+            proof_hash = hashlib.sha256(
+                file_bytes.read()
+            ).hexdigest()
+
+            duplicate = await find_duplicate_proof(
+                session,
+                proof_hash,
+                order_id,
+            )
+
+            order = await set_payment_proof_hash(
+                session,
+                order,
+                proof_hash,
+            )
+
             if duplicate is not None:
                 caption = (
-                    f"⚠️⚠️ ДИҚҚАТ: ҳамин расм қаблан барои фармоиши #{duplicate.id} "
-                    f"истифода шуда буд! Эҳтимоли фиреб — бодиққат санҷед.\n\n{caption}"
+                    f"⚠️⚠️ ДИҚҚАТ: ҳамин расм қаблан "
+                    f"барои фармоиши #{duplicate.id} "
+                    f"истифода шуда буд! Эҳтимоли фиреб — "
+                    f"бодиққат санҷед.\n\n"
+                    f"{caption}"
                 )
-        order = await set_proof_submitted(session, order)
+
+        order = await set_proof_submitted(
+            session,
+            order,
+        )
 
     if config.admin_chat_id:
         if message.photo:
@@ -866,66 +1646,140 @@ async def receive_payment_proof(message: Message, state: FSMContext) -> None:
                 config.admin_chat_id,
                 photo=message.photo[-1].file_id,
                 caption=caption,
-                reply_markup=admin_order_keyboard(order),
+                reply_markup=admin_order_keyboard(
+                    order
+                ),
             )
         else:
             await message.bot.send_document(
                 config.admin_chat_id,
                 document=message.document.file_id,
                 caption=caption,
-                reply_markup=admin_order_keyboard(order),
+                reply_markup=admin_order_keyboard(
+                    order
+                ),
             )
 
     await message.answer(
-        "Ташаккур! Расиди шумо ба админ фиристода шуд. Пас аз тасдиқ маҳсулоти шумо ирсол мешавад."
+        "Ташаккур! Расиди шумо ба админ фиристода шуд. "
+        "Пас аз тасдиқ маҳсулоти шумо ирсол мешавад."
     )
+
     await state.clear()
 
 
-@router.message(OrderFlow.awaiting_review, F.text)
-async def receive_review(message: Message, state: FSMContext) -> None:
+@router.message(
+    OrderFlow.awaiting_review,
+    F.text,
+)
+async def receive_review(
+    message: Message,
+    state: FSMContext,
+) -> None:
     from bot.db.repo import get_order
-    from bot.services.announcements import post_review_announcement
+    from bot.services.announcements import (
+        post_review_announcement,
+    )
 
     data = await state.get_data()
     order_id = data.get("order_id")
+
     await state.clear()
+
     if not order_id:
         return
 
     async with get_session() as session:
-        order = await get_order(session, order_id)
-        product = await get_product(session, order.product_id)
-        await post_review_announcement(message.bot, session, order, product, message.text.strip())
+        order = await get_order(
+            session,
+            order_id,
+        )
 
-    await message.answer("Ташаккур барои шарҳи шумо! 🙏")
+        product = await get_product(
+            session,
+            order.product_id,
+        )
+
+        await post_review_announcement(
+            message.bot,
+            session,
+            order,
+            product,
+            message.text.strip(),
+        )
+
+    await message.answer(
+        "Ташаккур барои шарҳи шумо! 🙏"
+    )
 
 
-@router.callback_query(F.data.startswith("review:skip:"))
-async def skip_review(callback: CallbackQuery, state: FSMContext) -> None:
+@router.callback_query(
+    F.data.startswith("review:skip:")
+)
+async def skip_review(
+    callback: CallbackQuery,
+    state: FSMContext,
+) -> None:
     from bot.db.repo import get_order
-    from bot.services.announcements import post_review_announcement
+    from bot.services.announcements import (
+        post_review_announcement,
+    )
 
-    order_id = int(callback.data.split(":")[2])
+    order_id = int(
+        callback.data.split(":")[2]
+    )
+
     await state.clear()
 
     async with get_session() as session:
-        order = await get_order(session, order_id)
-        product = await get_product(session, order.product_id)
-        await post_review_announcement(callback.bot, session, order, product, None)
+        order = await get_order(
+            session,
+            order_id,
+        )
 
-    await callback.message.edit_text("Хуб, ташаккур барои харид! 🙏")
+        product = await get_product(
+            session,
+            order.product_id,
+        )
+
+        await post_review_announcement(
+            callback.bot,
+            session,
+            order,
+            product,
+            None,
+        )
+
+    await callback.message.edit_text(
+        "Хуб, ташаккур барои харид! 🙏"
+    )
+
     await callback.answer()
 
 
 @router.message(Command("myorders"))
-async def my_orders(message: Message) -> None:
-    text = await _format_orders_text(message.from_user.id)
+async def my_orders(
+    message: Message,
+) -> None:
+    text = await _format_orders_text(
+        message.from_user.id
+    )
+
     await message.answer(text)
 
 
 @router.callback_query()
-async def stale_callback_fallback(callback: CallbackQuery, state: FSMContext) -> None:
-    await callback.answer("Ин тугма кӯҳна шудааст, лутфан аз нав кушоед 👇", show_alert=True)
+async def stale_callback_fallback(
+    callback: CallbackQuery,
+    state: FSMContext,
+) -> None:
+    await callback.answer(
+        "Ин тугма кӯҳна шудааст, лутфан аз нав кушоед 👇",
+        show_alert=True,
+    )
+
     await state.clear()
-    await callback.message.answer(WELCOME_TEXT)
+
+    await callback.message.answer(
+        WELCOME_TEXT
+    )
