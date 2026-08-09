@@ -46,7 +46,7 @@ def order_status_label(status: OrderStatus) -> str:
 # receipt comes in (bot/handlers/customer.py:receive_payment_proof) and
 # anywhere else an order's payment method is displayed.
 PAYMENT_METHOD_LABELS: dict[str, str] = {
-    "manual": "💳 Корт",
+    "manual": "💳 ДС",
     "manual_alif": "💳 Алиф",
     "manual_eskhata": "💳 Эсхата",
     "manual_amonatbonk": "💳 Амонатбонк",
