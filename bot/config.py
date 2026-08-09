@@ -96,14 +96,22 @@ class Config:
     # transfer method (same admin-confirmed proof flow as the default card
     # method), not the real Alif Business gateway above — falls back to
     # receiving_card_number if left empty.
-    alif_card_number: str = os.getenv("ALIF_CARD_NUMBER", "")
-    # Same idea as alif_card_number, but for the "💳 Эсхата" and "💳
-    # Амонатбонк" manual methods (see bot/services/payments.py:
-    # EskhataManualProvider / AmonatbonkManualProvider) — both are
-    # interbank transfers from the customer's own Eskhata/Amonatbonk app
-    # into this one Dushanbe City Bank account number. Falls back to
-    # receiving_card_number if left empty.
-    dc_transfer_number: str = os.getenv("DC_TRANSFER_NUMBER", "")
+    # Alif, Эсхата, ва Амонатбонк — ҳар се ба ҳамин ЯК рақами мобилӣ
+    # мераванд (тасдиқи соҳиби дӯкон) — ин манбаи ягонаи он рақам барои
+    # ҳар се усул (бинед bot/services/payments.py:AlifManualProvider /
+    # EskhataManualProvider / AmonatbonkManualProvider). Агар
+    # MOBILE_TRANSFER_NUMBER дар Render гузошта нашуда бошад, аввал ба
+    # арзишҳои кӯҳнаи DC_TRANSFER_NUMBER/ALIF_CARD_NUMBER (агар аз пеш
+    # гузошта шуда бошанд) бармегардад — ҳеҷ тағйире дар Render лозим
+    # нест — баъд ба рақами воқеӣ, ки шумо додед.
+    mobile_transfer_number: str = (
+        os.getenv("MOBILE_TRANSFER_NUMBER")
+        or os.getenv("DC_TRANSFER_NUMBER")
+        or os.getenv("ALIF_CARD_NUMBER")
+        or "976820008"
+    )
+    # Карти "💳 ДС (Душанбе Сити)" бошад — ин ҳамон receiving_card_number-и
+    # болост (9762000199761387), рақами корти алоҳида лозим нест.
     dc_shop_id: str = os.getenv("DC_SHOP_ID", "")
     dc_secret_key: str = os.getenv("DC_SECRET_KEY", "")
     dc_api_base_url: str = os.getenv("DC_API_BASE_URL", "")
