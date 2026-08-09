@@ -1,7 +1,7 @@
 """Core "payment confirmed -> attempt delivery" logic, shared between the
 admin's Telegram button and the SMS auto-confirmation webhook so both
-paths behave identically (referral credit, review prompt, customer
-messages) instead of drifting apart.
+paths behave identically (referral credit, giveaway progress, review
+prompt, customer messages) instead of drifting apart.
 """
 
 from __future__ import annotations
@@ -13,20 +13,23 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.storage.base import StorageKey
 
 from bot.config import config
-from bot.db.models import Order, OrderStatus
+from bot.db.models import Giveaway, Order, OrderStatus
 from bot.db.repo import (
     credit_referral_balance,
     get_order,
     get_orders_by_group,
     get_product,
     get_user,
+    record_giveaway_entry,
     set_order_status,
 )
 from bot.db.session import get_session
 from bot.fsm_storage import storage
 from bot.keyboards import review_prompt_keyboard
+from bot.services.announcements import post_giveaway_announcement
 from bot.services.delivery import get_delivery_provider
 from bot.states import OrderFlow
+from bot.texts import format_recipient
 
 REFERRAL_BONUS_RATE = 0.05
 
@@ -42,7 +45,34 @@ async def _credit_referral(session, order: Order) -> None:
     if buyer is None or buyer.referred_by is None:
         return
     bonus = round(order.amount_somoni * REFERRAL_BONUS_RATE, 2)
-    await credit_referral_balance(session, buyer.referred_by, bonus)
+    await credit_referral_balance(
+        session, buyer.referred_by, bonus, reason=f"Бонуси реферал аз фармоиши #{order.id}"
+    )
+
+
+async def _notify_giveaway_winners(bot: Bot, giveaway: Giveaway, winner_ids: list[int]) -> None:
+    for uid in winner_ids:
+        try:
+            await bot.send_message(
+                uid,
+                "🎉🏆 Табрик! Шумо дар туҳфаи мо ғолиб омадед!\n\n"
+                f"🎁 Ҷоиза: {giveaway.prize_description}\n\n"
+                "Ба зудӣ админ бо шумо тамос мегирад.",
+            )
+        except Exception:
+            pass
+
+    if config.admin_chat_id:
+        ids_text = ", ".join(str(uid) for uid in winner_ids)
+        await bot.send_message(
+            config.admin_chat_id,
+            f"🏆 Туҳфа анҷом ёфт! Ғолибон (ID): {ids_text}\n"
+            f"🎁 Ҷоиза: {giveaway.prize_description}\n\n"
+            f"Лутфан бо онҳо тамос гирифта, ҷоизаро расонед.",
+        )
+
+    async with get_session() as session:
+        await post_giveaway_announcement(bot, session, giveaway, winner_ids)
 
 
 async def prompt_for_review(bot: Bot, order: Order) -> None:
@@ -71,7 +101,7 @@ async def _resolve_group(session, order: Order) -> list[Order]:
 
 def _item_line(order: Order, product) -> str:
     bonus = f" (+{product.bonus_diamonds} бонус)" if product.bonus_diamonds else ""
-    return f"📦 {product.diamonds}{bonus}{product.unit_label}"
+    return f"📦 {product.diamonds}{bonus} {product.unit_label}"
 
 
 async def confirm_and_deliver(bot: Bot, order_id: int, payment_reference: str | None = None) -> FulfillmentResult | None:
@@ -113,7 +143,7 @@ async def confirm_and_deliver(bot: Bot, order_id: int, payment_reference: str | 
         await bot.send_message(
             order.user_id,
             f"✅ Пардохти фармоиши #{order.id} тасдиқ шуд. "
-            f"{product.diamonds}{product.unit_label} ба зудӣ ба ҳисоби шумо ирсол мешавад.",
+            f"{product.diamonds} {product.unit_label} ба зудӣ ба ҳисоби шумо ирсол мешавад.",
         )
 
     delivery = get_delivery_provider()
@@ -131,10 +161,11 @@ async def confirm_and_deliver(bot: Bot, order_id: int, payment_reference: str | 
             lines = [f"⚠️ Таҳвили худкор барои фармоиши #{order.id} нашуд — лутфан санҷед ва дастӣ иҷро карда, 'Delivered'-ро занед:"]
             for o, r in results:
                 reason = r.message if r is not None else "delivery provider raised NotImplementedError"
-                lines.append(f"#{o.id} ({o.ff_player_id}): {reason}")
+                lines.append(f"#{o.id} ({format_recipient(o.ff_player_id, o.recipient_extra)}): {reason}")
             await bot.send_message(config.admin_chat_id, "\n".join(lines)[:4000])
         return FulfillmentResult(order=order, auto_delivered=False)
 
+    giveaway_hit: tuple[Giveaway, list[int]] | None = None
     async with get_session() as session:
         delivered = []
         for o, r in results:
@@ -142,24 +173,36 @@ async def confirm_and_deliver(bot: Bot, order_id: int, payment_reference: str | 
             note = f"delivery_ref={r.reference}" if r.reference else None
             fresh = await set_order_status(session, fresh, OrderStatus.DELIVERED, admin_note=note)
             await _credit_referral(session, fresh)
+            hit = await record_giveaway_entry(session, fresh)
+            if hit is not None:
+                giveaway_hit = hit
             delivered.append(fresh)
 
     if len(delivered) > 1:
-        summary = "\n".join(f"{_item_line(o, products[o.id])} → {o.ff_player_id}" for o in delivered)
+        summary = "\n".join(
+            f"{_item_line(o, products[o.id])} → {format_recipient(o.ff_player_id, o.recipient_extra)}"
+            for o in delivered
+        )
         await bot.send_message(order.user_id, f"🎉 Ҳама маҳсулоти фармоиши шумо ирсол шуд:\n{summary}")
     else:
         product = products[delivered[0].id]
+        recipient = format_recipient(delivered[0].ff_player_id, delivered[0].recipient_extra)
         await bot.send_message(
             order.user_id,
-            f"🎉 {product.diamonds}{product.unit_label} ба аккаунти шумо ({delivered[0].ff_player_id}) ирсол шуд!",
+            f"🎉 {product.diamonds} {product.unit_label} ба аккаунти шумо ({recipient}) ирсол шуд!",
         )
     await prompt_for_review(bot, delivered[0])
+
+    if giveaway_hit is not None:
+        await _notify_giveaway_winners(bot, giveaway_hit[0], giveaway_hit[1])
+
     return FulfillmentResult(order=delivered[0], auto_delivered=True)
 
 
 async def mark_delivered_and_notify(bot: Bot, order_id: int) -> Order | None:
     """Admin manually confirms an order (and any sibling cart orders) was
     delivered by hand."""
+    giveaway_hit: tuple[Giveaway, list[int]] | None = None
     async with get_session() as session:
         order = await get_order(session, order_id)
         if order is None:
@@ -171,16 +214,27 @@ async def mark_delivered_and_notify(bot: Bot, order_id: int) -> Order | None:
             fresh = await set_order_status(session, o, OrderStatus.DELIVERED)
             products[fresh.id] = await get_product(session, fresh.product_id)
             await _credit_referral(session, fresh)
+            hit = await record_giveaway_entry(session, fresh)
+            if hit is not None:
+                giveaway_hit = hit
             delivered.append(fresh)
 
     if len(delivered) > 1:
-        summary = "\n".join(f"{_item_line(o, products[o.id])} → {o.ff_player_id}" for o in delivered)
+        summary = "\n".join(
+            f"{_item_line(o, products[o.id])} → {format_recipient(o.ff_player_id, o.recipient_extra)}"
+            for o in delivered
+        )
         await bot.send_message(order.user_id, f"🎉 Ҳама маҳсулоти фармоиши шумо ирсол шуд:\n{summary}")
     else:
         product = products[delivered[0].id]
+        recipient = format_recipient(delivered[0].ff_player_id, delivered[0].recipient_extra)
         await bot.send_message(
             order.user_id,
-            f"🎉 {product.diamonds}{product.unit_label} ба аккаунти шумо ({delivered[0].ff_player_id}) ирсол шуд!",
+            f"🎉 {product.diamonds} {product.unit_label} ба аккаунти шумо ({recipient}) ирсол шуд!",
         )
     await prompt_for_review(bot, delivered[0])
+
+    if giveaway_hit is not None:
+        await _notify_giveaway_winners(bot, giveaway_hit[0], giveaway_hit[1])
+
     return delivered[0]
