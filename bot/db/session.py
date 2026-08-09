@@ -67,6 +67,9 @@ _COLUMN_MIGRATIONS: dict[str, list[tuple[str, str]]] = {
         ("user_id", "BIGINT"),
         ("product_id", "INTEGER"),
         ("ff_player_id", "VARCHAR(32)"),
+        # Added for PUBG Mobile's Server ID (the only category that needs
+        # a second recipient field) — NULL for every other category.
+        ("recipient_extra", "VARCHAR(64)"),
         ("amount_somoni", "FLOAT"),
         ("paid_with_referral_balance", "BOOLEAN DEFAULT 0"),
         # Same Enum-stores-.name-not-.value gotcha as products.category.
@@ -79,6 +82,15 @@ _COLUMN_MIGRATIONS: dict[str, list[tuple[str, str]]] = {
         ("cart_group_id", "VARCHAR(32)"),
         ("created_at", "DATETIME"),
         ("updated_at", "DATETIME"),
+    ],
+    "bot_settings": [
+        ("card_photo_file_id", "VARCHAR(256)"),
+        # Separate photo per extra manual payment method (see
+        # bot/services/payments.py) — set live via /setalifcardphoto,
+        # /seteskhatacardphoto, /setamonatbonkcardphoto.
+        ("alif_card_photo_file_id", "VARCHAR(256)"),
+        ("eskhata_card_photo_file_id", "VARCHAR(256)"),
+        ("amonatbonk_card_photo_file_id", "VARCHAR(256)"),
     ],
 }
 
@@ -114,10 +126,27 @@ async def _apply_column_migrations(conn) -> None:
             await conn.exec_driver_sql(f"ALTER TABLE {table} ADD COLUMN {name} {column_def}")
 
 
+async def _widen_category_column(conn) -> None:
+    """New ProductCategory members (pubg, standoff2, ff_brazil,
+    ff_indonesia, combo) mean the longest member NAME stored in
+    bot_products.category can now be up to 16 characters. Postgres
+    enforces VARCHAR(n) strictly (unlike SQLite, which never truncates),
+    and a live column may have been auto-sized to fit only the original
+    two members (DIAMONDS/TELEGRAM). Widening it here unconditionally is
+    always a safe, lossless, idempotent operation on Postgres — it never
+    fails and never touches existing data — and a genuine no-op on
+    SQLite, so it's simplest to just always run it rather than first
+    detecting the column's current width."""
+    if conn.engine.dialect.name == "sqlite":
+        return
+    await conn.exec_driver_sql("ALTER TABLE bot_products ALTER COLUMN category TYPE VARCHAR(32)")
+
+
 async def init_db() -> None:
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
         await _apply_column_migrations(conn)
+        await _widen_category_column(conn)
 
     from bot.db.seed import seed_default_products
 
