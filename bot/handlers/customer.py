@@ -913,7 +913,8 @@ async def pay_with_balance(callback: CallbackQuery, state: FSMContext) -> None:
 
 
 async def _create_orders_and_invoice(callback: CallbackQuery, state: FSMContext, provider) -> None:
-    """Shared by both manual payment methods (💳 Корт / 💳 Алиф) — see
+    """Shared by every manual payment method (💳 ДС / 💳 Алиф / 💳 Эсхата /
+    💳 Амонатбонк) — see
     confirm_order, choose_payment_card, choose_payment_alif."""
     data = await state.get_data()
     recipient = data["ff_player_id"]
