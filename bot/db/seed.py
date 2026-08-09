@@ -5,19 +5,23 @@ Values taken directly from the price list image the admin provided. Cost
 a neutral placeholder — that's only used for the admin's own profit view
 (/products) and is never shown to customers. Tell the bot the real
 wholesale cost and it'll be corrected.
+
+Only the original Free Fire (CIS) diamond packs are seeded here — real
+сомонӣ prices for the newer categories (PUBG Mobile UC, Standoff 2 Gold,
+Free Fire Brazil/Indonesia, Combo) were never provided, and seeding made-up
+numbers would show customers a price nobody actually decided on (the same
+reasoning that already kept Telegram Stars out of this list). Add real
+ones with /addpubg, /addstandoff, /addffbr, /addffid, /addcombo, /addstars
+— see README.md for exact usage and examples.
 """
 
 from sqlalchemy import select
 
 from bot.db.models import Product, ProductCategory
 
-# Telegram Stars packages are intentionally not seeded here — unlike the
-# Free Fire prices above (given directly by the admin), no real Stars
-# pricing was provided, and seeding made-up numbers would show customers
-# a price nobody decided on. Add real ones with /addstars.
 DEFAULT_PRODUCTS = [
     # (name, diamonds, bonus_diamonds, price_somoni)
-    ("100 DIAMOND", 100, 10, 9),
+    ("100 DIAMOND", 100, 10, 9.0),
     ("310 DIAMOND", 310, 31, 27.50),
     ("520 DIAMOND", 520, 52, 48.50),
     ("1060 DIAMOND", 1060, 106, 90.50),
@@ -26,9 +30,9 @@ DEFAULT_PRODUCTS = [
     ("Ваучери Lite", 90, 0, 6.50),
     ("Ваучери weeky", 450, 0, 17.50),
     ("Ваучери Monther", 2600, 0, 90.00),
-    ("Evo Access 3D",0,0,6.90),
-    ("Evo Access 7D",0,0,9.90),
-    ("Evo Access 30D",0,0,24.90),
+    ("Evo Access 3D", 0, 0, 6.90),
+    ("Evo Access 7D", 0, 0, 9.90),
+    ("Evo Access 30D", 0, 0, 24.90),
 ]
 
 
