@@ -86,6 +86,20 @@ class Config:
     alif_secret_key: str = os.getenv("ALIF_SECRET_KEY", "")
     alif_api_base_url: str = os.getenv("ALIF_API_BASE_URL", "")
     alif_callback_path: str = os.getenv("ALIF_CALLBACK_PATH", "/webhooks/alif")
+    # Card/phone number that receives Alif Mobi transfers — shown to the
+    # customer on the "💳 Алиф" manual payment screen (see
+    # bot/services/payments.py:AlifManualProvider). This is a *manual*
+    # transfer method (same admin-confirmed proof flow as the default card
+    # method), not the real Alif Business gateway above — falls back to
+    # receiving_card_number if left empty.
+    alif_card_number: str = os.getenv("ALIF_CARD_NUMBER", "")
+    # Same idea as alif_card_number, but for the "💳 Эсхата" and "💳
+    # Амонатбонк" manual methods (see bot/services/payments.py:
+    # EskhataManualProvider / AmonatbonkManualProvider) — both are
+    # interbank transfers from the customer's own Eskhata/Amonatbonk app
+    # into this one Dushanbe City Bank account number. Falls back to
+    # receiving_card_number if left empty.
+    dc_transfer_number: str = os.getenv("DC_TRANSFER_NUMBER", "")
     dc_shop_id: str = os.getenv("DC_SHOP_ID", "")
     dc_secret_key: str = os.getenv("DC_SECRET_KEY", "")
     dc_api_base_url: str = os.getenv("DC_API_BASE_URL", "")
