@@ -4,16 +4,16 @@ Only the manual family is wired to a real, working flow: the customer
 transfers by card (or Alif Mobi / Eskhata / Amonatbonk interbank transfer)
 and sends proof; an admin confirms it with one tap. That is enough to
 launch and take real orders immediately. `ManualBankTransferProvider`
-(💳 Корт), `AlifManualProvider` (💳 Алиф), `EskhataManualProvider`
-(💳 Эсхата) and `AmonatbonkManualProvider` (💳 Амонатбонк) are all the
-exact same admin-confirmed flow, just pointed at a different receiving
-number/label — the customer picks one at checkout when
-PAYMENT_PROVIDER=manual (see bot/handlers/customer.py:confirm_order).
-Eskhata and Amonatbonk are both interbank transfers *into the same
-Dushanbe City Bank account* (config.dc_transfer_number) — a customer with
-an Eskhata or Amonatbonk mobile-banking app sends to that number from
-their own bank's app rather than needing a Dushanbe City account
-themselves; money lands in the same place either way.
+(💳 ДС — Dushanbe City Bank card), `AlifManualProvider` (💳 Алиф),
+`EskhataManualProvider` (💳 Эсхата) and `AmonatbonkManualProvider`
+(💳 Амонатбонк) are all the exact same admin-confirmed flow, just pointed
+at a different receiving number/label — the customer picks one at
+checkout when PAYMENT_PROVIDER=manual (see
+bot/handlers/customer.py:confirm_order). Alif, Eskhata and Amonatbonk all
+transfer into the *same* underlying account, via the customer's own
+Alif/Eskhata/Amonatbonk mobile-banking app — one shared number
+(config.mobile_transfer_number) covers all three; only ДС uses a
+different number (a card, config.receiving_card_number).
 
 `AlifPayProvider` and `DCBankProvider` below are scaffolds, not working
 integrations — they are the *real* payment-gateway APIs (Alif Business /
@@ -82,11 +82,13 @@ def _build_expresspay_link(order_id: int, amount_somoni: float) -> str | None:
 
 
 class ManualBankTransferProvider(PaymentProvider):
-    """Works today with zero external accounts: customer transfers by card
-    and sends proof; admin taps Confirm in the bot."""
+    """The "💳 ДС" button — customer transfers by card into the shop's
+    Dushanbe City Bank card (config.receiving_card_number) and sends
+    proof; admin taps Confirm in the bot. Works today with zero external
+    accounts."""
 
     method_key = "manual"
-    method_label = "💳 Корт"
+    method_label = "💳 ДС"
 
     def _card_number(self) -> str:
         return config.receiving_card_number
@@ -158,7 +160,7 @@ class AlifManualProvider(ManualBankTransferProvider):
     method_label = "💳 Алиф"
 
     def _card_number(self) -> str:
-        return config.alif_card_number or config.receiving_card_number
+        return config.mobile_transfer_number or config.receiving_card_number
 
     def _pay_link(self, order_id: int, amount_somoni: float) -> str | None:
         # ExpressPay pay-by-link is tied to the shop's main receiving card
@@ -174,22 +176,22 @@ class AlifManualProvider(ManualBankTransferProvider):
 
 class EskhataManualProvider(ManualBankTransferProvider):
     """The "💳 Эсхата" button — customer sends from their own Eskhata Bank
-    mobile-banking app via interbank transfer into the shop's Dushanbe
-    City Bank account (config.dc_transfer_number). Same admin-confirmed
-    proof flow as every other manual method above; only the label, number
+    mobile-banking app into the shop's account (config.mobile_transfer_number
+    — the same number Alif/Amonatbonk use). Same admin-confirmed proof
+    flow as every other manual method above; only the label, number
     source and card photo differ."""
 
     method_key = "manual_eskhata"
     method_label = "💳 Эсхата"
 
     def _card_number(self) -> str:
-        return config.dc_transfer_number or config.receiving_card_number
+        return config.mobile_transfer_number or config.receiving_card_number
 
     def _pay_link(self, order_id: int, amount_somoni: float) -> str | None:
         return None
 
     def _extra_note(self) -> str:
-        return "ℹ️ Аз барномаи мобилии Эсхата (Eskhata), тавассути интиқоли байнибонкӣ ба ин рақам (Душанбе Сити) гузаронед.\n"
+        return "ℹ️ Аз барномаи мобилии Эсхата (Eskhata) ба ин рақам гузаронед.\n"
 
     async def _get_card_photo_file_id(self, session) -> str | None:
         from bot.db.repo import get_eskhata_card_photo_file_id
@@ -205,13 +207,13 @@ class AmonatbonkManualProvider(ManualBankTransferProvider):
     method_label = "💳 Амонатбонк"
 
     def _card_number(self) -> str:
-        return config.dc_transfer_number or config.receiving_card_number
+        return config.mobile_transfer_number or config.receiving_card_number
 
     def _pay_link(self, order_id: int, amount_somoni: float) -> str | None:
         return None
 
     def _extra_note(self) -> str:
-        return "ℹ️ Аз барномаи мобилии Амонатбонк, тавассути интиқоли байнибонкӣ ба ин рақам (Душанбе Сити) гузаронед.\n"
+        return "ℹ️ Аз барномаи мобилии Амонатбонк ба ин рақам гузаронед.\n"
 
     async def _get_card_photo_file_id(self, session) -> str | None:
         from bot.db.repo import get_amonatbonk_card_photo_file_id
@@ -305,8 +307,8 @@ class DCBankProvider(PaymentProvider):
 def get_payment_provider() -> PaymentProvider:
     """Used only for the real-gateway path (PAYMENT_PROVIDER=alif/dc).
     When PAYMENT_PROVIDER=manual (the default), the customer instead picks
-    between ManualBankTransferProvider and AlifManualProvider directly at
-    checkout — see bot/handlers/customer.py:confirm_order."""
+    between ДС/Алиф/Эсхата/Амонатбонк directly at checkout — see
+    bot/handlers/customer.py:confirm_order."""
     if config.payment_provider == "alif":
         return AlifPayProvider()
     if config.payment_provider == "dc":
