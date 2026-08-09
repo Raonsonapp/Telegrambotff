@@ -56,12 +56,16 @@ class Config:
         default_factory=lambda: _normalize_database_url(os.getenv("DATABASE_URL", ""))
     )
 
-    # Public URL Render (or any other host) gives your service. Defaults to
-    # this project's real Render service so webhook mode + the self-ping
-    # keepalive (see main.py) work out of the box even if PUBLIC_URL isn't
-    # set in Render's environment — set PUBLIC_URL="" explicitly (e.g. in a
-    # local .env) to run in polling mode instead for local development.
-    public_url: str = os.getenv("PUBLIC_URL", "https://telegrambotff-jbqe.onrender.com")
+    # Public URL Render (or any other host) gives your service — REQUIRED
+    # in Render's Environment tab for webhook mode + the self-ping
+    # keepalive (see main.py) to work. Left empty on purpose as the
+    # fallback (rather than a guessed/hardcoded Render URL): a wrong
+    # hardcoded URL here would silently register the Telegram webhook, and
+    # self-ping, against a domain that isn't even this service — the bot
+    # would then never receive updates at all, which is far worse and
+    # harder to notice than just running in polling mode. Empty means
+    # "PUBLIC_URL isn't set" -> main.py safely falls back to polling.
+    public_url: str = os.getenv("PUBLIC_URL", "")
     telegram_webhook_path: str = os.getenv("TELEGRAM_WEBHOOK_PATH", "/tg-webhook")
     telegram_webhook_secret: str = os.getenv("TELEGRAM_WEBHOOK_SECRET", "")
     # Render sets $PORT itself at runtime; 8080 is just a local fallback.
