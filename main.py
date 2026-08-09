@@ -1,7 +1,7 @@
 import asyncio
 import logging
+import signal
 
-import aiohttp
 from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
@@ -17,6 +17,10 @@ from bot.middlewares import ForceJoinMiddleware
 from bot.services.sms_webhook import register_sms_webhook
 
 
+# ============================================================
+# LOGGING
+# ============================================================
+
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
@@ -25,26 +29,42 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
+# ============================================================
+# DISPATCHER
+# ============================================================
+
 def build_dispatcher() -> Dispatcher:
     dp = Dispatcher(storage=storage)
 
-    # Force join
+    # --------------------------------------------------------
+    # Force Join middleware
+    # --------------------------------------------------------
+
     force_join = ForceJoinMiddleware()
 
     dp.message.outer_middleware(force_join)
     dp.callback_query.outer_middleware(force_join)
 
+    # --------------------------------------------------------
     # Routers
+    # --------------------------------------------------------
+
     dp.include_router(admin.router)
     dp.include_router(customer.router)
+
+    # --------------------------------------------------------
+    # Global Telegram error handler
+    # --------------------------------------------------------
 
     @dp.errors()
     async def handle_errors(event: ErrorEvent) -> bool:
         exception = event.exception
 
+        # Telegram sometimes returns this when editing a message
+        # that already contains exactly the same content.
         if (
             isinstance(exception, TelegramBadRequest)
-            and "message is not modified" in str(exception)
+            and "message is not modified" in str(exception).lower()
         ):
             callback = event.update.callback_query
 
@@ -61,43 +81,71 @@ def build_dispatcher() -> Dispatcher:
             exception,
         )
 
+        # Returning False allows aiogram to handle/log the error.
         return False
 
     return dp
 
 
+# ============================================================
+# HTTP SERVER
+# ============================================================
+
 async def run_http_server(bot: Bot) -> web.AppRunner:
     """
-    HTTP server барои Render + SMS webhook.
-    Telegram update-ҳо тавассути polling меоянд.
+    HTTP server for Render health checks and SMS/payment webhook.
+
+    Telegram updates are received separately through long polling.
+    Both run on the same asyncio event loop.
     """
 
     app = web.Application()
 
-    async def health(_request: web.Request) -> web.Response:
+    # --------------------------------------------------------
+    # Root endpoint
+    # --------------------------------------------------------
+
+    async def root_handler(_request: web.Request) -> web.Response:
         return web.Response(
             text="ALMAZSHOP BOT OK",
             status=200,
+            content_type="text/plain",
         )
 
-    async def health_json(_request: web.Request) -> web.Response:
+    # --------------------------------------------------------
+    # Health endpoint
+    # --------------------------------------------------------
+
+    async def health_handler(_request: web.Request) -> web.Response:
         return web.json_response(
             {
                 "status": "ok",
-                "bot": "ALMAZSHOP",
+                "service": "ALMAZSHOP",
                 "telegram": "polling",
-            }
+            },
+            status=200,
         )
 
-    app.router.add_get("/", health)
-    app.router.add_get("/health", health_json)
+    app.router.add_get("/", root_handler)
+    app.router.add_get("/health", health_handler)
 
-    # SMS/payment webhook remains available
+    # --------------------------------------------------------
+    # Existing SMS/payment webhook
+    # --------------------------------------------------------
+
     register_sms_webhook(app, bot)
 
+    # --------------------------------------------------------
+    # Start aiohttp server
+    # --------------------------------------------------------
+
     runner = web.AppRunner(app)
+
     await runner.setup()
 
+    # IMPORTANT:
+    # Render requires the service to listen on 0.0.0.0
+    # and on the PORT configured by Render.
     site = web.TCPSite(
         runner,
         host="0.0.0.0",
@@ -107,8 +155,20 @@ async def run_http_server(bot: Bot) -> web.AppRunner:
     await site.start()
 
     logger.info(
-        "HTTP SERVER LISTENING on port %s",
+        "=================================================="
+    )
+    logger.info(
+        "HTTP SERVER STARTED"
+    )
+    logger.info(
+        "HOST: 0.0.0.0"
+    )
+    logger.info(
+        "PORT: %s",
         config.port,
+    )
+    logger.info(
+        "HEALTH: /health"
     )
 
     if config.public_url:
@@ -117,70 +177,79 @@ async def run_http_server(bot: Bot) -> web.AppRunner:
             config.public_url.rstrip("/"),
         )
 
+    logger.info(
+        "=================================================="
+    )
+
     return runner
 
 
-async def self_ping_loop(
-    url: str,
-    interval_seconds: int,
+# ============================================================
+# TELEGRAM POLLING
+# ============================================================
+
+async def run_polling(
+    bot: Bot,
+    dp: Dispatcher,
 ) -> None:
-    if not url or interval_seconds <= 0:
-        return
-
-    timeout = aiohttp.ClientTimeout(total=15)
-
-    async with aiohttp.ClientSession(timeout=timeout) as session:
-        while True:
-            await asyncio.sleep(interval_seconds)
-
-            try:
-                async with session.get(url) as response:
-                    logger.info(
-                        "SELF-PING %s -> HTTP %s",
-                        url,
-                        response.status,
-                    )
-
-            except asyncio.CancelledError:
-                raise
-
-            except Exception as exc:
-                logger.warning(
-                    "SELF-PING failed: %s",
-                    exc,
-                )
-
-
-async def run_polling(bot: Bot, dp: Dispatcher) -> None:
     """
-    Main Telegram connection.
+    Start Telegram long polling.
 
-    IMPORTANT:
-    Webhook is removed first.
-    Telegram updates then arrive through long polling.
+    There must be only ONE polling process for this bot token.
     """
 
-    # Remove ANY old webhook.
-    await bot.delete_webhook(
-        drop_pending_updates=True,
+    logger.info(
+        "Preparing Telegram polling..."
     )
+
+    # --------------------------------------------------------
+    # Remove webhook before polling.
+    #
+    # If an old webhook exists, Telegram polling can fail with
+    # webhook/polling conflicts.
+    # --------------------------------------------------------
+
+    await bot.delete_webhook(
+        drop_pending_updates=False,
+    )
+
+    # --------------------------------------------------------
+    # Check Telegram connection
+    # --------------------------------------------------------
 
     me = await bot.get_me()
 
     logger.info(
-        "TELEGRAM BOT: @%s (id=%s)",
+        "=================================================="
+    )
+    logger.info(
+        "TELEGRAM BOT CONNECTED"
+    )
+    logger.info(
+        "USERNAME: @%s",
         me.username,
+    )
+    logger.info(
+        "BOT ID: %s",
         me.id,
     )
-
     logger.info(
-        "TELEGRAM MODE: LONG POLLING",
+        "MODE: LONG POLLING"
     )
-
     logger.info(
-        "USED UPDATES: %s",
+        "UPDATES: %s",
         dp.resolve_used_update_types(),
     )
+    logger.info(
+        "=================================================="
+    )
+
+    # --------------------------------------------------------
+    # Start polling.
+    #
+    # aiogram handles SIGINT/SIGTERM and stops polling
+    # gracefully when Render shuts down/restarts the service.
+    # --------------------------------------------------------
 
     try:
         await dp.start_polling(
@@ -189,21 +258,61 @@ async def run_polling(bot: Bot, dp: Dispatcher) -> None:
             handle_signals=True,
         )
 
-    finally:
-        logger.info("Stopping Telegram polling...")
+    except asyncio.CancelledError:
+        logger.info(
+            "Telegram polling task cancelled."
+        )
+        raise
 
+    finally:
+        logger.info(
+            "Telegram polling stopped."
+        )
+
+
+# ============================================================
+# MAIN
+# ============================================================
 
 async def main() -> None:
+    logger.info(
+        "=================================================="
+    )
+    logger.info(
+        "ALMAZSHOP BOT STARTING..."
+    )
+    logger.info(
+        "=================================================="
+    )
+
+    # --------------------------------------------------------
+    # BOT TOKEN CHECK
+    # --------------------------------------------------------
+
     if not config.bot_token:
         raise RuntimeError(
             "BOT_TOKEN is not set. "
-            "Set BOT_TOKEN in Render Environment."
+            "Set BOT_TOKEN in Render Environment Variables."
         )
 
-    # Database
+    # --------------------------------------------------------
+    # DATABASE
+    # --------------------------------------------------------
+
+    logger.info(
+        "Initializing database..."
+    )
+
     await init_db()
 
-    # Telegram bot
+    logger.info(
+        "Database initialized successfully."
+    )
+
+    # --------------------------------------------------------
+    # TELEGRAM BOT
+    # --------------------------------------------------------
+
     bot = Bot(
         token=config.bot_token,
         default=DefaultBotProperties(
@@ -211,53 +320,105 @@ async def main() -> None:
         ),
     )
 
-    # Dispatcher
+    # --------------------------------------------------------
+    # DISPATCHER
+    # --------------------------------------------------------
+
     dp = build_dispatcher()
 
-    http_runner = None
-    ping_task = None
+    http_runner: web.AppRunner | None = None
 
     try:
-        # Render HTTP server
+        # ----------------------------------------------------
+        # START HTTP SERVER FIRST
+        # ----------------------------------------------------
+
         http_runner = await run_http_server(bot)
 
-        # Optional keepalive
-        if (
-            config.public_url
-            and config.keepalive_ping_seconds > 0
-        ):
-            ping_task = asyncio.create_task(
-                self_ping_loop(
-                    config.public_url.rstrip("/"),
-                    config.keepalive_ping_seconds,
-                )
-            )
+        logger.info(
+            "HTTP server is ready."
+        )
 
-            logger.info(
-                "SELF-PING ENABLED: every %s seconds",
-                config.keepalive_ping_seconds,
-            )
+        # ----------------------------------------------------
+        # START TELEGRAM POLLING
+        # ----------------------------------------------------
 
-        # Telegram polling
-        await run_polling(bot, dp)
+        logger.info(
+            "Starting Telegram polling..."
+        )
+
+        await run_polling(
+            bot,
+            dp,
+        )
+
+    except asyncio.CancelledError:
+        logger.info(
+            "Main task cancelled."
+        )
+        raise
+
+    except Exception:
+        logger.exception(
+            "FATAL ERROR IN MAIN APPLICATION"
+        )
+        raise
 
     finally:
-        if ping_task is not None:
-            ping_task.cancel()
-
-            try:
-                await ping_task
-            except asyncio.CancelledError:
-                pass
+        # ----------------------------------------------------
+        # STOP HTTP SERVER
+        # ----------------------------------------------------
 
         if http_runner is not None:
-            await http_runner.cleanup()
+            logger.info(
+                "Stopping HTTP server..."
+            )
 
-        await bot.session.close()
+            try:
+                await http_runner.cleanup()
+            except Exception:
+                logger.exception(
+                    "Error while stopping HTTP server."
+                )
 
+        # ----------------------------------------------------
+        # CLOSE TELEGRAM SESSION
+        # ----------------------------------------------------
+
+        logger.info(
+            "Closing Telegram session..."
+        )
+
+        try:
+            await bot.session.close()
+        except Exception:
+            logger.exception(
+                "Error while closing Telegram session."
+            )
+
+        logger.info(
+            "ALMAZSHOP BOT SHUTDOWN COMPLETE."
+        )
+
+
+# ============================================================
+# ENTRY POINT
+# ============================================================
 
 if __name__ == "__main__":
     try:
         asyncio.run(main())
+
     except KeyboardInterrupt:
-        pass
+        logger.info(
+            "Keyboard interrupt received. Bot stopped."
+        )
+
+    except SystemExit:
+        raise
+
+    except Exception:
+        logger.exception(
+            "Application terminated because of an unexpected error."
+        )
+        raise
