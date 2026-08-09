@@ -24,6 +24,7 @@ def build_dispatcher() -> Dispatcher:
     dp = Dispatcher(storage=storage)
 
     force_join = ForceJoinMiddleware()
+
     dp.message.outer_middleware(force_join)
     dp.callback_query.outer_middleware(force_join)
 
@@ -91,10 +92,15 @@ async def run_webhook(bot: Bot, dp: Dispatcher) -> None:
         + config.telegram_webhook_path
     )
 
+    # Remove the old webhook first.
+    await bot.delete_webhook(drop_pending_updates=True)
+
+    # Register the webhook again with all update types used by the dispatcher.
     await bot.set_webhook(
         url=webhook_url,
         secret_token=config.telegram_webhook_secret or None,
         drop_pending_updates=True,
+        allowed_updates=dp.resolve_used_update_types(),
     )
 
     info = await bot.get_webhook_info()
