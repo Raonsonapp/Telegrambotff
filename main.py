@@ -17,25 +17,34 @@ from bot.middlewares import ForceJoinMiddleware
 from bot.services.sms_webhook import register_sms_webhook
 
 
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
+)
+
+logger = logging.getLogger(__name__)
 
 
 def build_dispatcher() -> Dispatcher:
     dp = Dispatcher(storage=storage)
 
+    # Force join
     force_join = ForceJoinMiddleware()
 
     dp.message.outer_middleware(force_join)
     dp.callback_query.outer_middleware(force_join)
 
+    # Routers
     dp.include_router(admin.router)
     dp.include_router(customer.router)
 
     @dp.errors()
-    async def handle_stale_edit(event: ErrorEvent) -> bool:
+    async def handle_errors(event: ErrorEvent) -> bool:
+        exception = event.exception
+
         if (
-            isinstance(event.exception, TelegramBadRequest)
-            and "message is not modified" in str(event.exception)
+            isinstance(exception, TelegramBadRequest)
+            and "message is not modified" in str(exception)
         ):
             callback = event.update.callback_query
 
@@ -47,136 +56,46 @@ def build_dispatcher() -> Dispatcher:
 
             return True
 
+        logger.exception(
+            "Unhandled Telegram update error: %s",
+            exception,
+        )
+
         return False
 
     return dp
 
 
-async def run_polling(bot: Bot, dp: Dispatcher) -> None:
-    await bot.delete_webhook(drop_pending_updates=True)
-    await dp.start_polling(
-        bot,
-        allowed_updates=dp.resolve_used_update_types(),
-    )
-
-
-async def _self_ping_loop(
-    url: str,
-    interval_seconds: int,
-) -> None:
-    async with aiohttp.ClientSession(
-        timeout=aiohttp.ClientTimeout(total=10)
-    ) as session:
-
-        while True:
-            await asyncio.sleep(interval_seconds)
-
-            try:
-                async with session.get(url) as resp:
-                    logging.info(
-                        "Self-ping %s -> HTTP %s",
-                        url,
-                        resp.status,
-                    )
-
-            except Exception as exc:
-                logging.warning(
-                    "Self-ping to %s failed: %s",
-                    url,
-                    exc,
-                )
-
-
-async def run_webhook(
-    bot: Bot,
-    dp: Dispatcher,
-) -> None:
-    from aiogram.webhook.aiohttp_server import (
-        SimpleRequestHandler,
-        setup_application,
-    )
-
-    webhook_url = (
-        config.public_url.rstrip("/")
-        + config.telegram_webhook_path
-    )
-
-    # Remove any old webhook first.
-    await bot.delete_webhook(
-        drop_pending_updates=True
-    )
-
-    # Register the current webhook.
-    await bot.set_webhook(
-        url=webhook_url,
-        secret_token=config.telegram_webhook_secret or None,
-        drop_pending_updates=True,
-        allowed_updates=dp.resolve_used_update_types(),
-    )
-
-    # Verify the bot account and webhook immediately.
-    me = await bot.get_me()
-
-    logging.info(
-        "TELEGRAM BOT: @%s (id=%s)",
-        me.username,
-        me.id,
-    )
-
-    info = await bot.get_webhook_info()
-
-    logging.info(
-        "TELEGRAM WEBHOOK URL: %s",
-        info.url,
-    )
-
-    logging.info(
-        "TELEGRAM PENDING UPDATES: %s",
-        info.pending_update_count,
-    )
-
-    logging.info(
-        "TELEGRAM LAST ERROR: %s",
-        info.last_error_message,
-    )
-
-    if info.last_error_date:
-        logging.info(
-            "TELEGRAM LAST ERROR DATE: %s",
-            info.last_error_date,
-        )
+async def run_http_server(bot: Bot) -> web.AppRunner:
+    """
+    HTTP server барои Render + SMS webhook.
+    Telegram update-ҳо тавассути polling меоянд.
+    """
 
     app = web.Application()
 
-    async def health(
-        _request: web.Request,
-    ) -> web.Response:
+    async def health(_request: web.Request) -> web.Response:
         return web.Response(
-            text="OK",
+            text="ALMAZSHOP BOT OK",
             status=200,
         )
 
-    app.router.add_get("/", health)
+    async def health_json(_request: web.Request) -> web.Response:
+        return web.json_response(
+            {
+                "status": "ok",
+                "bot": "ALMAZSHOP",
+                "telegram": "polling",
+            }
+        )
 
+    app.router.add_get("/", health)
+    app.router.add_get("/health", health_json)
+
+    # SMS/payment webhook remains available
     register_sms_webhook(app, bot)
 
-    SimpleRequestHandler(
-        dispatcher=dp,
-        bot=bot,
-        secret_token=config.telegram_webhook_secret or None,
-    ).register(
-        app,
-        path=config.telegram_webhook_path,
-    )
-
-    setup_application(
-        app,
-        dp,
-        bot=bot,
-    )
-
     runner = web.AppRunner(app)
-
     await runner.setup()
 
     site = web.TCPSite(
@@ -187,41 +106,104 @@ async def run_webhook(
 
     await site.start()
 
-    logging.info(
-        "Webhook server listening on port %s, webhook url %s",
+    logger.info(
+        "HTTP SERVER LISTENING on port %s",
         config.port,
-        webhook_url,
     )
 
-    if (
-        config.keepalive_ping_seconds > 0
-        and config.public_url
-    ):
-        asyncio.create_task(
-            _self_ping_loop(
-                config.public_url.rstrip("/"),
-                config.keepalive_ping_seconds,
-            )
+    if config.public_url:
+        logger.info(
+            "PUBLIC URL: %s",
+            config.public_url.rstrip("/"),
         )
 
-        logging.info(
-            "Self-ping keepalive enabled: every %ss",
-            config.keepalive_ping_seconds,
+    return runner
+
+
+async def self_ping_loop(
+    url: str,
+    interval_seconds: int,
+) -> None:
+    if not url or interval_seconds <= 0:
+        return
+
+    timeout = aiohttp.ClientTimeout(total=15)
+
+    async with aiohttp.ClientSession(timeout=timeout) as session:
+        while True:
+            await asyncio.sleep(interval_seconds)
+
+            try:
+                async with session.get(url) as response:
+                    logger.info(
+                        "SELF-PING %s -> HTTP %s",
+                        url,
+                        response.status,
+                    )
+
+            except asyncio.CancelledError:
+                raise
+
+            except Exception as exc:
+                logger.warning(
+                    "SELF-PING failed: %s",
+                    exc,
+                )
+
+
+async def run_polling(bot: Bot, dp: Dispatcher) -> None:
+    """
+    Main Telegram connection.
+
+    IMPORTANT:
+    Webhook is removed first.
+    Telegram updates then arrive through long polling.
+    """
+
+    # Remove ANY old webhook.
+    await bot.delete_webhook(
+        drop_pending_updates=True,
+    )
+
+    me = await bot.get_me()
+
+    logger.info(
+        "TELEGRAM BOT: @%s (id=%s)",
+        me.username,
+        me.id,
+    )
+
+    logger.info(
+        "TELEGRAM MODE: LONG POLLING",
+    )
+
+    logger.info(
+        "USED UPDATES: %s",
+        dp.resolve_used_update_types(),
+    )
+
+    try:
+        await dp.start_polling(
+            bot,
+            allowed_updates=dp.resolve_used_update_types(),
+            handle_signals=True,
         )
 
-    # Keep the aiohttp server alive.
-    await asyncio.Event().wait()
+    finally:
+        logger.info("Stopping Telegram polling...")
 
 
 async def main() -> None:
     if not config.bot_token:
         raise RuntimeError(
             "BOT_TOKEN is not set. "
-            "Copy .env.example to .env and fill it in."
+            "Set BOT_TOKEN in Render Environment."
         )
 
+    # Database
     await init_db()
 
+    # Telegram bot
     bot = Bot(
         token=config.bot_token,
         default=DefaultBotProperties(
@@ -229,28 +211,53 @@ async def main() -> None:
         ),
     )
 
-    # Check which Telegram bot this BOT_TOKEN actually belongs to.
-    me = await bot.get_me()
-
-    logging.info(
-        "TELEGRAM BOT: @%s (id=%s)",
-        me.username,
-        me.id,
-    )
-
+    # Dispatcher
     dp = build_dispatcher()
 
-    if config.public_url:
-        await run_webhook(
-            bot,
-            dp,
-        )
-    else:
-        await run_polling(
-            bot,
-            dp,
-        )
+    http_runner = None
+    ping_task = None
+
+    try:
+        # Render HTTP server
+        http_runner = await run_http_server(bot)
+
+        # Optional keepalive
+        if (
+            config.public_url
+            and config.keepalive_ping_seconds > 0
+        ):
+            ping_task = asyncio.create_task(
+                self_ping_loop(
+                    config.public_url.rstrip("/"),
+                    config.keepalive_ping_seconds,
+                )
+            )
+
+            logger.info(
+                "SELF-PING ENABLED: every %s seconds",
+                config.keepalive_ping_seconds,
+            )
+
+        # Telegram polling
+        await run_polling(bot, dp)
+
+    finally:
+        if ping_task is not None:
+            ping_task.cancel()
+
+            try:
+                await ping_task
+            except asyncio.CancelledError:
+                pass
+
+        if http_runner is not None:
+            await http_runner.cleanup()
+
+        await bot.session.close()
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        pass
