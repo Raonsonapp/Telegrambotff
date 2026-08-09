@@ -40,7 +40,10 @@ def build_dispatcher() -> Dispatcher:
             callback = event.update.callback_query
 
             if callback is not None:
-                await callback.answer()
+                try:
+                    await callback.answer()
+                except Exception:
+                    pass
 
             return True
 
@@ -51,7 +54,10 @@ def build_dispatcher() -> Dispatcher:
 
 async def run_polling(bot: Bot, dp: Dispatcher) -> None:
     await bot.delete_webhook(drop_pending_updates=True)
-    await dp.start_polling(bot)
+    await dp.start_polling(
+        bot,
+        allowed_updates=dp.resolve_used_update_types(),
+    )
 
 
 async def _self_ping_loop(
@@ -81,7 +87,10 @@ async def _self_ping_loop(
                 )
 
 
-async def run_webhook(bot: Bot, dp: Dispatcher) -> None:
+async def run_webhook(
+    bot: Bot,
+    dp: Dispatcher,
+) -> None:
     from aiogram.webhook.aiohttp_server import (
         SimpleRequestHandler,
         setup_application,
@@ -92,15 +101,26 @@ async def run_webhook(bot: Bot, dp: Dispatcher) -> None:
         + config.telegram_webhook_path
     )
 
-    # Remove the old webhook first.
-    await bot.delete_webhook(drop_pending_updates=True)
+    # Remove any old webhook first.
+    await bot.delete_webhook(
+        drop_pending_updates=True
+    )
 
-    # Register the webhook again with all update types used by the dispatcher.
+    # Register the current webhook.
     await bot.set_webhook(
         url=webhook_url,
         secret_token=config.telegram_webhook_secret or None,
         drop_pending_updates=True,
         allowed_updates=dp.resolve_used_update_types(),
+    )
+
+    # Verify the bot account and webhook immediately.
+    me = await bot.get_me()
+
+    logging.info(
+        "TELEGRAM BOT: @%s (id=%s)",
+        me.username,
+        me.id,
     )
 
     info = await bot.get_webhook_info()
@@ -120,12 +140,21 @@ async def run_webhook(bot: Bot, dp: Dispatcher) -> None:
         info.last_error_message,
     )
 
+    if info.last_error_date:
+        logging.info(
+            "TELEGRAM LAST ERROR DATE: %s",
+            info.last_error_date,
+        )
+
     app = web.Application()
 
     async def health(
         _request: web.Request,
     ) -> web.Response:
-        return web.Response(text="OK")
+        return web.Response(
+            text="OK",
+            status=200,
+        )
 
     app.router.add_get("/", health)
 
@@ -164,10 +193,13 @@ async def run_webhook(bot: Bot, dp: Dispatcher) -> None:
         webhook_url,
     )
 
-    if config.keepalive_ping_seconds > 0:
+    if (
+        config.keepalive_ping_seconds > 0
+        and config.public_url
+    ):
         asyncio.create_task(
             _self_ping_loop(
-                config.public_url,
+                config.public_url.rstrip("/"),
                 config.keepalive_ping_seconds,
             )
         )
@@ -177,6 +209,7 @@ async def run_webhook(bot: Bot, dp: Dispatcher) -> None:
             config.keepalive_ping_seconds,
         )
 
+    # Keep the aiohttp server alive.
     await asyncio.Event().wait()
 
 
@@ -196,12 +229,27 @@ async def main() -> None:
         ),
     )
 
+    # Check which Telegram bot this BOT_TOKEN actually belongs to.
+    me = await bot.get_me()
+
+    logging.info(
+        "TELEGRAM BOT: @%s (id=%s)",
+        me.username,
+        me.id,
+    )
+
     dp = build_dispatcher()
 
     if config.public_url:
-        await run_webhook(bot, dp)
+        await run_webhook(
+            bot,
+            dp,
+        )
     else:
-        await run_polling(bot, dp)
+        await run_polling(
+            bot,
+            dp,
+        )
 
 
 if __name__ == "__main__":
