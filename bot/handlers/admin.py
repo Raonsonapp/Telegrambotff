@@ -66,12 +66,19 @@ async def _add_product(message: Message, category: ProductCategory, usage_exampl
         name = " ".join(parts[1:-3])
         amount, price, cost = parts[-3:]
         try:
+            price_val = float(price)
             product = Product(
                 name=name,
                 category=category,
                 diamonds=int(amount),
-                price_somoni=float(price),
+                price_somoni=price_val,
                 cost_somoni=float(cost),
+                # A price of 0 (or negative, e.g. a typo'd "-") almost
+                # certainly means "I don't have a real price for this yet"
+                # rather than "sell this for free" — keep it inactive so it
+                # can never accidentally reach a customer until /setprice
+                # gives it a real price and reactivates it explicitly.
+                is_active=price_val > 0,
             )
         except ValueError:
             reports.append(f"⚠️ Миқдор ва нарх бояд рақам бошанд: {line}")
@@ -82,10 +89,18 @@ async def _add_product(message: Message, category: ProductCategory, usage_exampl
             await session.commit()
             await session.refresh(product)
 
-        reports.append(
-            f"✅ #{product.id} {product.name} — {product.diamonds} {product.unit_label} "
-            f"ба {product.price_somoni:.2f} сомонӣ (фоида {product.margin_somoni:.2f} сомонӣ)"
-        )
+        if product.is_active:
+            reports.append(
+                f"✅ #{product.id} {product.name} — {product.diamonds} {product.unit_label} "
+                f"ба {product.price_somoni:.2f} сомонӣ (фоида {product.margin_somoni:.2f} сомонӣ)"
+            )
+        else:
+            reports.append(
+                f"⚠️ #{product.id} {product.name} бе нархи воқеӣ (0 ё манфӣ) сохта шуд — "
+                f"ХОМӮШ (ғайрифаъол) гузошта шуд, то тасодуфан ройгон фурӯхта нашавад.\n"
+                f"Вақте нархи воқеӣ гузоред, худкор фаъол мешавад: "
+                f"/setprice {product.id} <нарх_фурӯш> [нарх_харид]"
+            )
 
     if not reports:
         await message.answer(
@@ -719,10 +734,11 @@ async def set_price(message: Message) -> None:
                 continue
             product = await set_product_price(session, product, price, cost)
 
+        status_note = "" if product.is_active else " — ⚠️ ХОМӮШ монд (нарх ≤ 0)"
         reports.append(
             f"✅ #{product.id} ({product.name}): нарх={product.price_somoni:.2f}с"
             + (f", харид={product.cost_somoni:.2f}с" if cost is not None else "")
-            + f", фоида={product.margin_somoni:.2f}с"
+            + f", фоида={product.margin_somoni:.2f}с{status_note}"
         )
 
     if not reports:
