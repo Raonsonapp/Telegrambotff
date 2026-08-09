@@ -8,6 +8,20 @@ from aiogram.types import (
 from bot.config import config
 from bot.db.models import Order, Product, ProductCategory
 
+# Categories that support "🛒 Якчанд бастаро якҷоя харидан" (buy several
+# packs in one checkout). Left out on purpose:
+# - TELEGRAM: always was single-item only.
+# - COMBO: must stay one-at-a-time so the one-per-account duplicate check
+#   (bot/db/repo.py:has_combo_purchase) is always checked against a single,
+#   unambiguous recipient ID per purchase.
+_CART_ENABLED_CATEGORIES = {
+    ProductCategory.DIAMONDS,
+    ProductCategory.FF_BRAZIL,
+    ProductCategory.FF_INDONESIA,
+    ProductCategory.PUBG,
+    ProductCategory.STANDOFF2,
+}
+
 
 def terms_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
@@ -36,6 +50,7 @@ def main_reply_keyboard() -> ReplyKeyboardMarkup:
             [KeyboardButton(text="👤 Профил"), KeyboardButton(text="🤝 Реферал")],
             [KeyboardButton(text="⭐ Отзив"), KeyboardButton(text="🆘 Дастгирӣ")],
             [KeyboardButton(text="❓ Саволҳои маъмул"), KeyboardButton(text="ℹ️ Маълумот")],
+            [KeyboardButton(text="🎁 Туҳфа")],
         ],
         resize_keyboard=True,
         is_persistent=True,
@@ -54,6 +69,11 @@ def games_menu_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [InlineKeyboardButton(text="🔥 Free Fire", callback_data="menu:buy_diamonds")],
+            [InlineKeyboardButton(text="🔥 Free Fire Бразилия", callback_data="menu:ff_brazil")],
+            [InlineKeyboardButton(text="🔥 Free Fire Индонезия", callback_data="menu:ff_indonesia")],
+            [InlineKeyboardButton(text="🔫 PUBG Mobile", callback_data="menu:pubg")],
+            [InlineKeyboardButton(text="🎯 Standoff 2", callback_data="menu:standoff2")],
+            [InlineKeyboardButton(text="🎫 Комбо (Пропуски прокачка)", callback_data="menu:combo")],
             [InlineKeyboardButton(text="🔙 Ба меню", callback_data="menu:main")],
         ]
     )
@@ -62,9 +82,10 @@ def games_menu_keyboard() -> InlineKeyboardMarkup:
 def profile_menu_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text="📦 Фармоишҳои ман", callback_data="menu:myorders")],
+            [InlineKeyboardButton(text="📄 Фармоишҳоям", callback_data="menu:myorders")],
             [InlineKeyboardButton(text="🏆 Топ харидорон", callback_data="menu:top_buyers")],
-            [InlineKeyboardButton(text="🎖 Топ рефералдорон", callback_data="menu:top_referrers")],
+            [InlineKeyboardButton(text="🏅 Топ рефералдорон", callback_data="menu:top_referrers")],
+            [InlineKeyboardButton(text="📜 Таърихи баланс", callback_data="menu:balance_history")],
             [InlineKeyboardButton(text="🔙 Ба меню", callback_data="menu:main")],
         ]
     )
@@ -73,7 +94,7 @@ def profile_menu_keyboard() -> InlineKeyboardMarkup:
 def referral_menu_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text="🎖 Топ рефералдорон", callback_data="menu:top_referrers")],
+            [InlineKeyboardButton(text="🏅 Топ рефералдорон", callback_data="menu:top_referrers")],
             [InlineKeyboardButton(text="🔙 Ба меню", callback_data="menu:main")],
         ]
     )
@@ -104,8 +125,9 @@ def contact_keyboard() -> InlineKeyboardMarkup:
 def _product_label(p: Product) -> str:
     # A plain pack's admin-given name is just its size ("100 диамонд"), so a
     # numeric diamond count says more than the name; a voucher/subscription
-    # ("Ваучери ҳафтагӣ") has a name that carries real information the raw
-    # diamond-equivalent number would hide — show whichever is meaningful.
+    # ("Ваучери ҳафтагӣ") or combo ("Пропуски прокачка 800") has a name that
+    # carries real information the raw amount would hide — show whichever
+    # is meaningful.
     if p.name[:1].isdigit():
         bonus = f" (+{p.bonus_diamonds} бонус)" if p.bonus_diamonds else ""
         return f"{p.diamonds}{bonus} {p.unit_label} — {p.price_somoni:.2f} сомонӣ"
@@ -117,7 +139,7 @@ def products_keyboard(products: list[Product], category: ProductCategory) -> Inl
         [InlineKeyboardButton(text=_product_label(p), callback_data=f"product:{p.id}")]
         for p in products
     ]
-    if category == ProductCategory.DIAMONDS:
+    if category in _CART_ENABLED_CATEGORIES:
         rows.append(
             [InlineKeyboardButton(text="🛒 Якчанд бастаро якҷоя харидан", callback_data=f"cartmode:{category.value}")]
         )
@@ -167,28 +189,18 @@ def payment_link_keyboard(pay_url: str) -> InlineKeyboardMarkup:
     )
 
 
-# Payment methods — added without changing the existing keyboards above.
-def payment_methods_keyboard() -> InlineKeyboardMarkup:
+def payment_method_keyboard() -> InlineKeyboardMarkup:
+    """Shown right after "✅ Тасдиқ (бо чек)" when PAYMENT_PROVIDER=manual —
+    lets the customer choose which manual card to pay into. Both options
+    lead to the exact same admin-confirmed receipt flow (see
+    bot/services/payments.py), just with a different card/label."""
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [
-                InlineKeyboardButton(
-                    text="🏙️ Душанбе Сити",
-                    callback_data="payment:dc",
-                )
-            ],
-            [
-                InlineKeyboardButton(
-                    text="🟢 Alif",
-                    callback_data="payment:alif",
-                )
-            ],
-            [
-                InlineKeyboardButton(
-                    text="🔵 Eskhata",
-                    callback_data="payment:eskhata",
-                )
-            ],
+            [InlineKeyboardButton(text="💳 Корт (стандартӣ)", callback_data="paymethod:card")],
+            [InlineKeyboardButton(text="💳 Алиф", callback_data="paymethod:alif")],
+            [InlineKeyboardButton(text="💳 Эсхата", callback_data="paymethod:eskhata")],
+            [InlineKeyboardButton(text="💳 Амонатбонк", callback_data="paymethod:amonatbonk")],
+            [InlineKeyboardButton(text="❌ Бекор", callback_data="order:cancel")],
         ]
     )
 
