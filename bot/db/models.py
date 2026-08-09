@@ -23,8 +23,34 @@ class OrderStatus(str, enum.Enum):
 
 
 class ProductCategory(str, enum.Enum):
-    DIAMONDS = "diamonds"  # Free Fire diamonds — recipient is a player ID
+    DIAMONDS = "diamonds"  # Free Fire (CIS) diamonds — recipient is a player ID
     TELEGRAM = "telegram"  # Telegram Stars/Premium — recipient is a @username
+    PUBG = "pubg"  # PUBG Mobile UC — recipient is Player ID + Server ID
+    STANDOFF2 = "standoff2"  # Standoff 2 Gold — recipient is a USER ID
+    FF_BRAZIL = "ff_brazil"  # Free Fire (Brazil) diamonds — recipient is a player ID
+    FF_INDONESIA = "ff_indonesia"  # Free Fire (Indonesia) diamonds — recipient is a player ID
+    COMBO = "combo"  # One-time-per-account combo packs (e.g. level-up pass)
+
+
+# Member NAMEs (not .value) are what SQLAlchemy's Enum type stores in the
+# database column by default — every member name here is kept to 16 chars
+# or fewer on purpose, to stay inside whatever width bot_products.category
+# already has in a live database (see the defensive column-widening in
+# bot/db/session.py, which additionally guards against this on Postgres).
+assert all(len(member.name) <= 16 for member in ProductCategory)
+
+# Display unit shown next to a plain (digit-named) pack's amount, e.g.
+# "310💎" or "660 UC" — see Product.unit_label and
+# bot/keyboards.py:_product_label.
+_UNIT_LABELS: dict[ProductCategory, str] = {
+    ProductCategory.DIAMONDS: "💎",
+    ProductCategory.TELEGRAM: "⭐",
+    ProductCategory.PUBG: "UC",
+    ProductCategory.STANDOFF2: "G",
+    ProductCategory.FF_BRAZIL: "💎",
+    ProductCategory.FF_INDONESIA: "💎",
+    ProductCategory.COMBO: "💎",
+}
 
 
 class User(Base):
@@ -51,7 +77,7 @@ class User(Base):
 
 
 class Product(Base):
-    """A diamond package or Telegram Stars/Premium package the bot sells."""
+    """A diamond/UC/Gold package, voucher, or combo the bot sells."""
 
     __tablename__ = "bot_products"
 
@@ -60,7 +86,7 @@ class Product(Base):
     category: Mapped[ProductCategory] = mapped_column(
         Enum(ProductCategory), default=ProductCategory.DIAMONDS
     )
-    diamonds: Mapped[int] = mapped_column(Integer)  # unit count: diamonds, or Stars
+    diamonds: Mapped[int] = mapped_column(Integer)  # unit count: diamonds, UC, Gold, or Stars
     # Extra units the supplier throws in on top of `diamonds` for this pack
     # (e.g. FazerCards' "110_diamonds" offer for a 100-pack = 10 bonus) —
     # set automatically by /mapproduct from the live offer, so the bot can
@@ -81,7 +107,7 @@ class Product(Base):
 
     @property
     def unit_label(self) -> str:
-        return "💎" if self.category == ProductCategory.DIAMONDS else "⭐"
+        return _UNIT_LABELS.get(self.category, "💎")
 
     @property
     def total_diamonds(self) -> int:
@@ -94,9 +120,13 @@ class Order(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     user_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("bot_users.id"))
     product_id: Mapped[int] = mapped_column(Integer, ForeignKey("bot_products.id"))
-    # Free Fire player ID (diamonds) or @username (Telegram Stars/Premium),
-    # depending on the product's category.
+    # Free Fire/Standoff 2/PUBG player ID or @username (Telegram Stars/
+    # Premium), depending on the product's category.
     ff_player_id: Mapped[str] = mapped_column(String(32))
+    # Second recipient field, only used by categories that need more than
+    # one (currently just PUBG Mobile's Server ID). Null for everything
+    # else — see bot/states.py:OrderFlow.entering_recipient_extra.
+    recipient_extra: Mapped[str | None] = mapped_column(String(64), nullable=True)
     amount_somoni: Mapped[float] = mapped_column(Float)
     paid_with_referral_balance: Mapped[bool] = mapped_column(default=False)
     status: Mapped[OrderStatus] = mapped_column(
@@ -128,13 +158,81 @@ class Order(Base):
     product: Mapped["Product"] = relationship()
 
 
+class BalanceTransaction(Base):
+    """One ledger line for a referral-balance change (credit or debit) —
+    powers the "📜 Таърихи баланс" screen in the profile menu. `amount` is
+    signed: positive for a credit (referral bonus), negative for a debit
+    (paying for an order with balance)."""
+
+    __tablename__ = "bot_balance_transactions"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("bot_users.id"))
+    amount: Mapped[float] = mapped_column(Float)
+    reason: Mapped[str] = mapped_column(String(256))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class Giveaway(Base):
+    """A community purchase-goal giveaway round, configured by the admin
+    via /giveaway_start. `current_purchases` counts every DELIVERED order
+    while this round is active (bot/services/fulfillment.py) — once it
+    reaches `required_purchases`, `winners_count` winners are drawn at
+    random from everyone who purchased during the round and the round
+    closes (is_active=False, is_completed=True)."""
+
+    __tablename__ = "bot_giveaways"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    required_purchases: Mapped[int] = mapped_column(Integer)
+    prize_description: Mapped[str] = mapped_column(String(256))
+    winners_count: Mapped[int] = mapped_column(Integer, default=1)
+    current_purchases: Mapped[int] = mapped_column(Integer, default=0)
+    is_active: Mapped[bool] = mapped_column(default=True)
+    is_completed: Mapped[bool] = mapped_column(default=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class GiveawayEntry(Base):
+    """One participation record: this order counted toward this giveaway
+    round for this user. Used to draw winners only from users who actually
+    purchased during the round (distinct user_id)."""
+
+    __tablename__ = "bot_giveaway_entries"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    giveaway_id: Mapped[int] = mapped_column(Integer, ForeignKey("bot_giveaways.id"))
+    user_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("bot_users.id"))
+    order_id: Mapped[int] = mapped_column(Integer, ForeignKey("bot_orders.id"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class GiveawayWinner(Base):
+    """A drawn winner of a completed giveaway round — kept permanently
+    (never deleted) so "🎉 То ҳол ... нафар туҳфа бурдааст" and "🏆
+    Барандаи охирин" can always be shown, even long after the round that
+    produced them has closed."""
+
+    __tablename__ = "bot_giveaway_winners"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    giveaway_id: Mapped[int] = mapped_column(Integer, ForeignKey("bot_giveaways.id"))
+    user_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("bot_users.id"))
+    prize_description: Mapped[str] = mapped_column(String(256))
+    won_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
 class BotSettings(Base):
     """Single-row table (id=1) for admin-configurable settings that aren't
-    tied to any one product/order — e.g. the personal-card photo shown to
-    customers on the manual payment screen, set live via /setcardphoto
-    instead of a redeploy-only env var."""
+    tied to any one product/order — e.g. the personal-card photos shown to
+    customers on the payment screen, set live via /setcardphoto and
+    /setalifcardphoto instead of a redeploy-only env var."""
 
     __tablename__ = "bot_settings"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, default=1)
     card_photo_file_id: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    alif_card_photo_file_id: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    eskhata_card_photo_file_id: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    amonatbonk_card_photo_file_id: Mapped[str | None] = mapped_column(String(256), nullable=True)
