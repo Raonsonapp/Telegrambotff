@@ -1,4 +1,4 @@
-# Diamond Bot — боти фурӯши top-up-и Free Fire# Diamond Bot — боти фурӯши top-up-и Free Fire / PUBG Mobile / Standoff 2
+# Diamond Bot — боти фурӯши top-up-и Free Fire / PUBG Mobile / Standoff 2
 
 Боти Telegram барои фурӯши top-up-и бозиҳо (Free Fire CIS/Бразилия/Индонезия,
 PUBG Mobile UC, Standoff 2 Gold, Telegram Stars, ва бастаҳои Комбо): мизоҷ
