@@ -84,7 +84,18 @@ class Product(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     name: Mapped[str] = mapped_column(String(64))
     category: Mapped[ProductCategory] = mapped_column(
-        Enum(ProductCategory), default=ProductCategory.DIAMONDS
+        # native_enum=False is the actual fix for "operator does not exist:
+        # character varying = productcategory" on Postgres: by default
+        # SQLAlchemy's Enum type assumes a native CREATE TYPE productcategory
+        # exists and casts every bind parameter to it (::productcategory) —
+        # but this column has only ever existed as a plain VARCHAR (created
+        # via the raw ALTER TABLE ADD COLUMN in bot/db/session.py, never via
+        # CREATE TYPE). native_enum=False tells SQLAlchemy to treat it as
+        # the VARCHAR it actually is: bind/compare as a plain string, no
+        # cast. Storage is still by member NAME ("DIAMONDS"), not .value
+        # ("diamonds") — that part was already correct and is unaffected.
+        Enum(ProductCategory, native_enum=False),
+        default=ProductCategory.DIAMONDS,
     )
     diamonds: Mapped[int] = mapped_column(Integer)  # unit count: diamonds, UC, Gold, or Stars
     # Extra units the supplier throws in on top of `diamonds` for this pack
@@ -130,7 +141,15 @@ class Order(Base):
     amount_somoni: Mapped[float] = mapped_column(Float)
     paid_with_referral_balance: Mapped[bool] = mapped_column(default=False)
     status: Mapped[OrderStatus] = mapped_column(
-        Enum(OrderStatus), default=OrderStatus.AWAITING_PAYMENT
+        # Same fix as Product.category above, same reason — this column is
+        # also a plain VARCHAR in the live database, not a native Postgres
+        # enum type, so every Order.status == OrderStatus.X comparison
+        # anywhere in the project (repo.py, admin.py, announcements.py,
+        # fulfillment.py) was one query away from the exact same
+        # "character varying = orderstatus" crash the moment it ran against
+        # Postgres — just not hit yet.
+        Enum(OrderStatus, native_enum=False),
+        default=OrderStatus.AWAITING_PAYMENT,
     )
     payment_provider: Mapped[str] = mapped_column(String(32), default="manual")
     payment_reference: Mapped[str | None] = mapped_column(String(128), nullable=True)
