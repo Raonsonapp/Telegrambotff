@@ -196,7 +196,7 @@ def payment_method_keyboard() -> InlineKeyboardMarkup:
     bot/services/payments.py), just with a different card/label."""
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text="💳 Корт (стандартӣ)", callback_data="paymethod:card")],
+            [InlineKeyboardButton(text="💳 ДС (Душанбе Сити)", callback_data="paymethod:card")],
             [InlineKeyboardButton(text="💳 Алиф", callback_data="paymethod:alif")],
             [InlineKeyboardButton(text="💳 Эсхата", callback_data="paymethod:eskhata")],
             [InlineKeyboardButton(text="💳 Амонатбонк", callback_data="paymethod:amonatbonk")],
