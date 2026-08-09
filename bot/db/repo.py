@@ -145,6 +145,13 @@ async def set_product_price(
     product.price_somoni = price_somoni
     if cost_somoni is not None:
         product.cost_somoni = cost_somoni
+    # A product created with no real price yet (see bot/handlers/admin.py:
+    # _add_product) is left inactive on purpose so it can't accidentally
+    # sell for 0 сомонӣ — giving it a real positive price here is exactly
+    # the admin's "okay, this one's ready" signal, so reactivate it in the
+    # same step instead of requiring a separate command. Symmetrically,
+    # setting it back to 0/negative takes it back offline.
+    product.is_active = price_somoni > 0
     await session.commit()
     await session.refresh(product)
     return product
