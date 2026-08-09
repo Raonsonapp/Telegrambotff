@@ -27,9 +27,31 @@ if config.database_url:
     _ssl_context = ssl.create_default_context()
     _ssl_context.check_hostname = False
     _ssl_context.verify_mode = ssl.CERT_NONE
-    engine = create_async_engine(_pg_url, connect_args={"ssl": _ssl_context, "statement_cache_size": 0})
+    engine = create_async_engine(
+        _pg_url,
+        connect_args={"ssl": _ssl_context, "statement_cache_size": 0},
+        # Supabase's pooler (and most managed Postgres poolers) silently
+        # drops connections that sit idle for a while — the bot's own
+        # traffic is bursty (long gaps between orders), so without this a
+        # handler picking up a pooled-but-now-dead connection would fail
+        # with "connection was closed in the middle of operation" instead
+        # of just quietly getting a fresh one. pool_pre_ping runs a cheap
+        # "is this connection still alive" check before handing a pooled
+        # connection to a session, transparently reconnecting if not.
+        # pool_recycle proactively retires connections older than 5
+        # minutes so they're replaced before the pooler has a chance to
+        # kill them out from under us.
+        pool_pre_ping=True,
+        pool_recycle=300,
+    )
 else:
-    engine = create_async_engine(f"sqlite+aiosqlite:///{config.database_path}")
+    # SQLite is a local file, not a network service with a pooler that can
+    # drop the connection out from under us — pool_pre_ping is a no-op
+    # cost here, but harmless to enable for consistency with the Postgres
+    # branch above.
+    engine = create_async_engine(
+        f"sqlite+aiosqlite:///{config.database_path}", pool_pre_ping=True
+    )
 async_session = async_sessionmaker(engine, expire_on_commit=False)
 
 # create_all only creates tables that don't exist yet — it never adds new
