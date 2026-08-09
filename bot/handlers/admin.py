@@ -8,21 +8,29 @@ from bot.config import config
 from bot.db.models import OrderStatus, Product, ProductCategory
 from bot.db.repo import (
     count_proofs_submitted,
+    count_total_giveaway_winners,
+    create_giveaway,
+    get_active_giveaway,
     get_order,
     get_orders_by_group,
     get_product,
     list_active_products,
     list_orders_by_status,
     list_proofs_submitted,
+    set_alif_card_photo_file_id,
+    set_amonatbonk_card_photo_file_id,
     set_card_photo_file_id,
+    set_eskhata_card_photo_file_id,
     set_order_status,
     set_product_bonus,
     set_product_fzr_mapping,
     set_product_price,
+    stop_giveaway,
 )
 from bot.db.session import get_session
 from bot.keyboards import admin_order_keyboard
 from bot.services.fulfillment import confirm_and_deliver, mark_delivered_and_notify
+from bot.texts import format_recipient, order_status_label
 
 router = Router(name="admin")
 
@@ -75,7 +83,7 @@ async def _add_product(message: Message, category: ProductCategory, usage_exampl
             await session.refresh(product)
 
         reports.append(
-            f"✅ #{product.id} {product.name} — {product.diamonds}{product.unit_label} "
+            f"✅ #{product.id} {product.name} — {product.diamonds} {product.unit_label} "
             f"ба {product.price_somoni:.2f} сомонӣ (фоида {product.margin_somoni:.2f} сомонӣ)"
         )
 
@@ -100,6 +108,31 @@ async def add_stars(message: Message) -> None:
     await _add_product(message, ProductCategory.TELEGRAM, "/addstars")
 
 
+@router.message(Command("addpubg"))
+async def add_pubg(message: Message) -> None:
+    await _add_product(message, ProductCategory.PUBG, "/addpubg")
+
+
+@router.message(Command("addstandoff"))
+async def add_standoff(message: Message) -> None:
+    await _add_product(message, ProductCategory.STANDOFF2, "/addstandoff")
+
+
+@router.message(Command("addffbr"))
+async def add_ff_brazil(message: Message) -> None:
+    await _add_product(message, ProductCategory.FF_BRAZIL, "/addffbr")
+
+
+@router.message(Command("addffid"))
+async def add_ff_indonesia(message: Message) -> None:
+    await _add_product(message, ProductCategory.FF_INDONESIA, "/addffid")
+
+
+@router.message(Command("addcombo"))
+async def add_combo(message: Message) -> None:
+    await _add_product(message, ProductCategory.COMBO, "/addcombo")
+
+
 @router.message(Command("products"))
 async def list_products(message: Message) -> None:
     if not is_admin(message.from_user.id):
@@ -110,16 +143,19 @@ async def list_products(message: Message) -> None:
         products = await list_active_products(session)
 
     if not products:
-        await message.answer("Ягон маҳсулот нест. Бо /addproduct ё /addstars илова кунед.")
+        await message.answer(
+            "Ягон маҳсулот нест. Бо /addproduct, /addstars, /addpubg, /addstandoff, "
+            "/addffbr, /addffid ё /addcombo илова кунед."
+        )
         return
 
     lines = [
         f"#{p.id} [{p.category.value}] {p.name}: {p.diamonds}"
         + (f"(+{p.bonus_diamonds})" if p.bonus_diamonds else "")
-        + f"{p.unit_label} = {p.price_somoni:.2f}с (харид {p.cost_somoni:.2f}с, фоида {p.margin_somoni:.2f}с)"
+        + f" {p.unit_label} = {p.price_somoni:.2f}с (харид {p.cost_somoni:.2f}с, фоида {p.margin_somoni:.2f}с)"
         for p in products
     ]
-    await message.answer("\n".join(lines))
+    await message.answer("\n".join(lines)[:4000])
 
 
 @router.message(Command("delproduct"))
@@ -179,6 +215,70 @@ async def set_card_photo(message: Message) -> None:
     await message.answer("✅ Расми корт сабт шуд — акнун дар экрани пардохт нишон дода мешавад.")
 
 
+@router.message(Command("setalifcardphoto"))
+async def set_alif_card_photo(message: Message) -> None:
+    if not is_admin(message.from_user.id):
+        await _reject_non_admin(message)
+        return
+
+    photo_message = message if message.photo else message.reply_to_message
+    if photo_message is None or not photo_message.photo:
+        await message.answer(
+            "Расми корти Алифро ҳамчун акс фиристед, бо матни «/setalifcardphoto» дар зери он, "
+            "ё ин фармонро ба ҷавоби (reply) як расми қаблан фиристодашуда занед."
+        )
+        return
+
+    file_id = photo_message.photo[-1].file_id
+    async with get_session() as session:
+        await set_alif_card_photo_file_id(session, file_id)
+
+    await message.answer("✅ Расми корти Алиф сабт шуд — акнун дар экрани пардохти «💳 Алиф» нишон дода мешавад.")
+
+
+@router.message(Command("seteskhatacardphoto"))
+async def set_eskhata_card_photo(message: Message) -> None:
+    if not is_admin(message.from_user.id):
+        await _reject_non_admin(message)
+        return
+
+    photo_message = message if message.photo else message.reply_to_message
+    if photo_message is None or not photo_message.photo:
+        await message.answer(
+            "Расмро (масалан скриншоти интиқол ба Эсхата) ҳамчун акс фиристед, бо матни "
+            "«/seteskhatacardphoto» дар зери он, ё ин фармонро ба ҷавоби (reply) як расми "
+            "қаблан фиристодашуда занед."
+        )
+        return
+
+    file_id = photo_message.photo[-1].file_id
+    async with get_session() as session:
+        await set_eskhata_card_photo_file_id(session, file_id)
+
+    await message.answer("✅ Расм барои усули «💳 Эсхата» сабт шуд.")
+
+
+@router.message(Command("setamonatbonkcardphoto"))
+async def set_amonatbonk_card_photo(message: Message) -> None:
+    if not is_admin(message.from_user.id):
+        await _reject_non_admin(message)
+        return
+
+    photo_message = message if message.photo else message.reply_to_message
+    if photo_message is None or not photo_message.photo:
+        await message.answer(
+            "Расмро ҳамчун акс фиристед, бо матни «/setamonatbonkcardphoto» дар зери он, "
+            "ё ин фармонро ба ҷавоби (reply) як расми қаблан фиристодашуда занед."
+        )
+        return
+
+    file_id = photo_message.photo[-1].file_id
+    async with get_session() as session:
+        await set_amonatbonk_card_photo_file_id(session, file_id)
+
+    await message.answer("✅ Расм барои усули «💳 Амонатбонк» сабт шуд.")
+
+
 @router.message(Command("pending"))
 async def pending_orders(message: Message) -> None:
     if not is_admin(message.from_user.id):
@@ -189,14 +289,17 @@ async def pending_orders(message: Message) -> None:
         awaiting = await list_orders_by_status(session, OrderStatus.AWAITING_PAYMENT)
         paid = await list_orders_by_status(session, OrderStatus.PAID)
 
+    def _line(o) -> str:
+        return f"#{o.id} — {o.amount_somoni:.2f}с — recipient {format_recipient(o.ff_player_id, o.recipient_extra)}"
+
     if not awaiting and not paid:
         await message.answer("Фармоиши боқимонда нест.")
         return
 
     lines = ["⏳ Дар интизори пардохт:"]
-    lines += [f"#{o.id} — {o.amount_somoni:.2f}с — recipient {o.ff_player_id}" for o in awaiting] or ["(нест)"]
+    lines += [_line(o) for o in awaiting] or ["(нест)"]
     lines.append("\n💰 Пардохт шуда, дар интизори ирсол:")
-    lines += [f"#{o.id} — {o.amount_somoni:.2f}с — recipient {o.ff_player_id}" for o in paid] or ["(нест)"]
+    lines += [_line(o) for o in paid] or ["(нест)"]
     await message.answer("\n".join(lines))
 
 
@@ -224,7 +327,8 @@ async def proofs_submitted(message: Message) -> None:
             # closest thing we have, not the exact submit time.
             when = order.created_at.strftime("%d.%m.%Y %H:%M") + " (тахминӣ)"
         lines.append(
-            f"#{order.id} — {name} (id={user.id}) — {order.amount_somoni:.2f}с — {order.status.value} — {when}"
+            f"#{order.id} — {name} (id={user.id}) — {order.amount_somoni:.2f}с — "
+            f"{order_status_label(order.status)} — {when}"
         )
     await message.answer("\n".join(lines)[:4000])
 
@@ -286,6 +390,80 @@ async def mark_delivered(callback: CallbackQuery, bot: Bot) -> None:
 
     await callback.message.edit_reply_markup(reply_markup=None)
     await callback.answer("Қайд шуд ҳамчун ирсолшуда.")
+
+
+# --- Giveaway (see bot/db/repo.py + bot/services/fulfillment.py) ---
+
+
+@router.message(Command("giveaway_start"))
+async def giveaway_start(message: Message) -> None:
+    if not is_admin(message.from_user.id):
+        await _reject_non_admin(message)
+        return
+
+    parts = message.text.split(maxsplit=3)
+    if len(parts) != 4 or not parts[1].isdigit() or not parts[2].isdigit():
+        await message.answer(
+            "Истифода: /giveaway_start <шумораи харид> <шумораи ғолибон> <тавсифи ҷоиза>\n"
+            "Мисол: /giveaway_start 25 1 iPhone 15"
+        )
+        return
+
+    async with get_session() as session:
+        existing = await get_active_giveaway(session)
+        if existing is not None:
+            await message.answer(
+                f"⚠️ Аллакай як туҳфаи фаъол ҳаст ({existing.current_purchases}/{existing.required_purchases}). "
+                "Аввал /giveaway_stop занед."
+            )
+            return
+        giveaway = await create_giveaway(session, int(parts[1]), parts[3].strip(), int(parts[2]))
+
+    await message.answer(
+        f"✅ Туҳфа оғоз шуд!\n"
+        f"🎁 {giveaway.prize_description}\n"
+        f"🎯 Ҳадаф: {giveaway.required_purchases} харид\n"
+        f"👥 Ғолибон: {giveaway.winners_count}"
+    )
+
+
+@router.message(Command("giveaway_stop"))
+async def giveaway_stop_cmd(message: Message) -> None:
+    if not is_admin(message.from_user.id):
+        await _reject_non_admin(message)
+        return
+
+    async with get_session() as session:
+        giveaway = await get_active_giveaway(session)
+        if giveaway is None:
+            await message.answer("Ягон туҳфаи фаъол нест.")
+            return
+        await stop_giveaway(session, giveaway)
+
+    await message.answer("✅ Туҳфа қатъ карда шуд (бе интихоби ғолиб).")
+
+
+@router.message(Command("giveaway_status"))
+async def giveaway_status(message: Message) -> None:
+    if not is_admin(message.from_user.id):
+        await _reject_non_admin(message)
+        return
+
+    async with get_session() as session:
+        giveaway = await get_active_giveaway(session)
+        total_winners = await count_total_giveaway_winners(session)
+
+    if giveaway is None:
+        await message.answer(f"Ягон туҳфаи фаъол нест.\n🎉 Ҳамагӣ {total_winners} нафар то ҳол бурдаанд.")
+        return
+
+    pct = int(giveaway.current_purchases / giveaway.required_purchases * 100) if giveaway.required_purchases else 0
+    await message.answer(
+        f"🎁 {giveaway.prize_description}\n"
+        f"📊 {giveaway.current_purchases}/{giveaway.required_purchases} ({pct}%)\n"
+        f"👥 Ғолибон: {giveaway.winners_count}\n"
+        f"🎉 Ҳамагӣ бурдаанд (умумӣ): {total_winners}"
+    )
 
 
 @router.message(Command("fzr_categories"))
@@ -424,7 +602,7 @@ async def map_product(message: Message) -> None:
                 if bonus is not None:
                     product = await set_product_bonus(session, product, bonus)
                     bonus_note = (
-                        f", бонус +{bonus} (ҳамагӣ {product.total_diamonds}{product.unit_label})"
+                        f", бонус +{bonus} (ҳамагӣ {product.total_diamonds} {product.unit_label})"
                         if bonus > 0
                         else ""
                     )
@@ -497,7 +675,7 @@ async def set_bonus(message: Message) -> None:
 
         reports.append(
             f"✅ Маҳсулот #{product.id} ({product.name}): бонус = +{product.bonus_diamonds} "
-            f"(ҳамагӣ {product.total_diamonds}{product.unit_label})."
+            f"(ҳамагӣ {product.total_diamonds} {product.unit_label})."
         )
 
     if not reports:
