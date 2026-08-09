@@ -1,3 +1,5 @@
+from bot.db.models import OrderStatus
+
 TERMS_TEXT = (
     "📜 Шартномаи корбар\n\n"
     "Пеш аз истифода лутфан шартҳоро хонед:\n\n"
@@ -17,9 +19,52 @@ FAQ_TEXT = (
     "💰 Пул баргардонида мешавад?\n"
     "Не, баъд аз иҷрои муваффақ пул баргардонида намешавад (ба ғайр аз хатои техникии мо). Агар пардохт кардед вале маҳсулот нарасид, ба дастгирӣ муроҷиат кунед.\n\n"
     "💳 Кадом усулҳои пардохт ҳастанд?\n"
-    "Гузаронидани корт ба корт (дастӣ). Дар оянда: Душанбе Сити, Алиф.\n\n"
+    "Гузаронидани корт ба корт (дастӣ) ё «💳 Алиф». Ҳангоми тасдиқи фармоиш усули дилхоҳро интихоб мекунед.\n\n"
     "📸 Чек чӣ гуна фиристам?\n"
     "Баъд аз пардохт, расми чекро (скриншот аз барномаи бонк) ба ҳамин чат фиристед. Бот худкор ба админ мефиристад.\n\n"
     "⚠️ Пардохт кардам, вале бот тасдиқ накард — чӣ кунам?\n"
     "Каме сабр кунед (то 15-30 дақиқа). Агар боз ҳам тасдиқ нашуд, ба дастгирӣ тамос гиред ва скриншоти пардохтро нишон диҳед."
 )
+
+# Customer-facing status labels for "📄 Фармоишҳоям" / /myorders — see
+# bot/handlers/customer.py:_format_orders_text.
+ORDER_STATUS_LABELS: dict[OrderStatus, str] = {
+    OrderStatus.AWAITING_PAYMENT: "⏳ Интизорӣ",
+    OrderStatus.PAID: "✅ Пардохт шуд",
+    OrderStatus.DELIVERING: "🚚 Фиристода шуд",
+    OrderStatus.DELIVERED: "✔️ Иҷро шуд",
+    OrderStatus.CANCELLED: "❌ Рад шуд",
+    OrderStatus.FAILED: "❌ Хато",
+}
+
+
+def order_status_label(status: OrderStatus) -> str:
+    return ORDER_STATUS_LABELS.get(status, status.value)
+
+
+# Order.payment_provider values -> human label, shown to the admin when a
+# receipt comes in (bot/handlers/customer.py:receive_payment_proof) and
+# anywhere else an order's payment method is displayed.
+PAYMENT_METHOD_LABELS: dict[str, str] = {
+    "manual": "💳 Корт",
+    "manual_alif": "💳 Алиф",
+    "manual_eskhata": "💳 Эсхата",
+    "manual_amonatbonk": "💳 Амонатбонк",
+    "alif": "Alif Pay (шлюзи расмӣ)",
+    "dc": "Dushanbe City Bank (шлюзи расмӣ)",
+    "referral_balance": "💰 Баланси реферал",
+}
+
+
+def payment_method_label(payment_provider: str) -> str:
+    return PAYMENT_METHOD_LABELS.get(payment_provider, payment_provider)
+
+
+def format_recipient(ff_player_id: str, recipient_extra: str | None = None) -> str:
+    """PUBG Mobile orders carry a Server ID alongside the Player ID —
+    every other category only ever has recipient_extra=None. Used
+    anywhere an order's recipient is shown (confirmation screens, admin
+    notifications, /pending, /myorders)."""
+    if recipient_extra:
+        return f"{ff_player_id} (Server: {recipient_extra})"
+    return ff_player_id
