@@ -47,6 +47,36 @@ async def _reject_non_admin(message: Message) -> None:
     )
 
 
+@router.message(Command("admin"))
+async def admin_panel(message: Message) -> None:
+    if not is_admin(message.from_user.id):
+        await _reject_non_admin(message)
+        return
+
+    await message.answer(
+        "🛠 <b>Панели админ</b>\n\n"
+        "📦 <b>Маҳсулот</b>\n"
+        "/products — рӯйхати ҳама\n"
+        "/addproduct /addpubg /addstandoff /addffbr /addffid /addcombo /addstars "
+        "— <name> <миқдор> <нарх_фурӯш> <нарх_харид>\n"
+        "/delproduct &lt;ID&gt;\n"
+        "/setprice &lt;ID&gt; &lt;нарх&gt; [харид]\n"
+        "/setbonus &lt;ID&gt; &lt;бонус&gt;\n\n"
+        "💳 <b>Фармоишу пардохт</b>\n"
+        "/pending — дар интизор\n"
+        "/proofs — чекҳои фиристодашуда\n\n"
+        "🎁 <b>Туҳфа</b>\n"
+        "/giveaway_start &lt;шумораи харид&gt; &lt;ғолибон&gt; &lt;ҷоиза&gt;\n"
+        "/giveaway_status /giveaway_stop\n\n"
+        "🖼 <b>Расми корт</b>\n"
+        "/setcardphoto (ДС) /setalifcardphoto /seteskhatacardphoto /setamonatbonkcardphoto\n\n"
+        "🔗 <b>FazerCards (автоматики донат)</b>\n"
+        "/fzr_categories /fzr_offers &lt;category_id&gt; /fzr_validate_id\n"
+        "/mapproduct &lt;product_id&gt; &lt;category_id&gt; &lt;offer_id&gt;\n\n"
+        "Ҳар фармон бе аргумент низ пуштибониро нишон медиҳад."
+    )
+
+
 async def _add_product(message: Message, category: ProductCategory, usage_example: str) -> None:
     if not is_admin(message.from_user.id):
         await _reject_non_admin(message)
