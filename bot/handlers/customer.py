@@ -59,7 +59,7 @@ from bot.services.payments import (
     get_payment_provider,
 )
 from bot.states import OrderFlow
-from bot.texts import FAQ_TEXT, TERMS_TEXT, format_recipient, order_status_label, payment_method_label
+from bot.texts import FAQ_TEXT, TERMS_TEXT, category_display_name, format_recipient, order_status_label, payment_method_label
 
 router = Router(name="customer")
 
@@ -861,6 +861,20 @@ async def pay_with_balance(callback: CallbackQuery, state: FSMContext) -> None:
 
     async with get_session() as session:
         products = await _cart_products(session, data)
+
+        if any(p is None or not p.is_active or p.price_somoni <= 0 for p in products):
+            await callback.answer("Ин маҳсулот дигар дастрас нест.", show_alert=True)
+            await state.clear()
+            try:
+                await callback.message.edit_text(
+                    "❌ Маҳсулот дигар дастрас нест (нарх тағйир ёфт ё хомӯш шуд). "
+                    "Лутфан аз менюи асосӣ аз нав интихоб кунед.",
+                    reply_markup=back_to_menu_keyboard(),
+                )
+            except TelegramBadRequest:
+                pass
+            return
+
         total = sum(p.price_somoni for p in products)
         user = await get_user(session, callback.from_user.id)
 
@@ -892,7 +906,10 @@ async def pay_with_balance(callback: CallbackQuery, state: FSMContext) -> None:
             session, user, total, reason=f"Пардохти фармоиши #{primary.id} бо баланси реферал"
         )
 
-    summary = "\n".join(f"📦 {p.diamonds} {p.unit_label} — {p.price_somoni:.2f} сомонӣ" for p in products)
+    summary = "\n".join(
+        f"📦 {p.diamonds} {p.unit_label} ({category_display_name(p.category)}) — {p.price_somoni:.2f} сомонӣ"
+        for p in products
+    )
     if config.admin_chat_id:
         await callback.bot.send_message(
             config.admin_chat_id,
@@ -922,6 +939,24 @@ async def _create_orders_and_invoice(callback: CallbackQuery, state: FSMContext,
 
     async with get_session() as session:
         products = await _cart_products(session, data)
+
+        if any(p is None or not p.is_active or p.price_somoni <= 0 for p in products):
+            # Selected between confirm and payment-method choice, but the
+            # admin deactivated/repriced it in the meantime (e.g. a
+            # placeholder-price product from /addpubg still awaiting a
+            # real /setprice) — never build a payment link with a
+            # missing/zero FINAL PRICE.
+            await callback.answer("Ин маҳсулот дигар дастрас нест.", show_alert=True)
+            await state.clear()
+            try:
+                await callback.message.edit_text(
+                    "❌ Маҳсулот дигар дастрас нест (нарх тағйир ёфт ё хомӯш шуд). "
+                    "Лутфан аз менюи асосӣ аз нав интихоб кунед.",
+                    reply_markup=back_to_menu_keyboard(),
+                )
+            except TelegramBadRequest:
+                pass
+            return
 
         if any(p.category == ProductCategory.COMBO for p in products):
             if await has_combo_purchase(session, recipient):
@@ -1045,18 +1080,24 @@ async def receive_payment_proof(message: Message, state: FSMContext) -> None:
     async with get_session() as session:
         order = await get_order(session, order_id)
         group = await get_orders_by_group(session, order.cart_group_id) if order.cart_group_id else [order]
-        items_summary = ""
-        if len(group) > 1:
-            products = [await get_product(session, o.product_id) for o in group]
-            items_summary = "\n" + "\n".join(
-                f"📦 {p.diamonds} {p.unit_label} — {o.amount_somoni:.2f} сомонӣ" if o.amount_somoni else f"📦 {p.diamonds} {p.unit_label}"
-                for o, p in zip(group, products)
-            )
+        products = [await get_product(session, o.product_id) for o in group]
+        # Always shown now (not just for multi-item carts) — the admin
+        # needs to see which product/category/amount this receipt is for
+        # regardless of whether it's a single order or a group.
+        items_summary = "\n" + "\n".join(
+            f"📦 {p.diamonds} {p.unit_label} ({category_display_name(p.category)})"
+            + (f" — {o.amount_somoni:.2f} сомонӣ" if o.amount_somoni else "")
+            for o, p in zip(group, products)
+        )
+        recipient_line = f"🎮 {format_recipient(order.ff_player_id, order.recipient_extra)}\n"
+        total = sum(o.amount_somoni for o in group)
         method_line = f"💳 Усул: {payment_method_label(order.payment_provider)}\n"
 
     caption = (
         f"🆕 Фармоиши #{order_id}{items_summary}\n"
+        f"💰 Ҳамагӣ: {total:.2f} сомонӣ\n"
         f"👤 Мизоҷ: {message.from_user.full_name} (@{message.from_user.username or '—'}, id={message.from_user.id})\n"
+        f"{recipient_line}"
         f"{method_line}"
         f"Расиди пардохт замима шуд.\n\n"
         f"❗️ Пеш аз тасдиқ, ҳатман дар аппи бонки худ маблағи воқеиро санҷед — расм танҳо кофӣ нест."
@@ -1139,6 +1180,22 @@ async def skip_review(callback: CallbackQuery, state: FSMContext) -> None:
 async def my_orders(message: Message) -> None:
     text = await _format_orders_text(message.from_user.id)
     await message.answer(text)
+
+
+@router.message(F.photo | F.document)
+async def stray_receipt_fallback(message: Message) -> None:
+    """Reached only when no state-specific handler above claimed a
+    photo/document — i.e. the customer sent something receipt-shaped with
+    no active order actually waiting for proof (receive_payment_proof
+    above already handles the *matching* case: registered on
+    OrderFlow.awaiting_payment_proof, so it always wins first when that
+    state is active). Silently doing nothing here used to leave the
+    customer thinking their receipt was sent when it never reached anyone."""
+    await message.answer(
+        "Ин расм/файл ба ягон фармоиши фаъол алоқаманд нест — расид қабул нашуд.\n\n"
+        "Агар мехоҳед харид кунед, аз меню сар кунед 👇",
+        reply_markup=main_reply_keyboard(),
+    )
 
 
 @router.callback_query()
