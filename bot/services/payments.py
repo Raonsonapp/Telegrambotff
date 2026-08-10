@@ -1,24 +1,33 @@
 """Payment provider abstraction.
 
 Only the manual family is wired to a real, working flow: the customer
-transfers by card (or Alif Mobi / Eskhata / Amonatbonk interbank transfer)
-and sends proof; an admin confirms it with one tap. That is enough to
-launch and take real orders immediately. `ManualBankTransferProvider`
-(💳 ДС — Dushanbe City Bank card), `AlifManualProvider` (💳 Алиф),
+pays via a real tap-to-pay link (💳 ДС, 💳 Алиф — both pre-filled with the
+order's exact FINAL PRICE, never a hardcoded amount) or a manual transfer
+(💳 Эсхата, 💳 Амонатбонк), then sends proof; an admin confirms it with
+one tap. That is enough to launch and take real orders immediately.
+`ManualBankTransferProvider` (💳 ДС — Dushanbe City Bank card + pay.dc.tj
+link), `AlifManualProvider` (💳 Алиф — Alif Mobi in-app deep link),
 `EskhataManualProvider` (💳 Эсхата) and `AmonatbonkManualProvider`
-(💳 Амонатбонк) are all the exact same admin-confirmed flow, just pointed
-at a different receiving number/label — the customer picks one at
-checkout when PAYMENT_PROVIDER=manual (see
+(💳 Амонатбонк) are all the exact same admin-confirmed proof flow
+underneath, just pointed at a different receiving number/link/label — the
+customer picks one at checkout when PAYMENT_PROVIDER=manual (see
 bot/handlers/customer.py:confirm_order). Alif, Eskhata and Amonatbonk all
 transfer into the *same* underlying account, via the customer's own
 Alif/Eskhata/Amonatbonk mobile-banking app — one shared number
 (config.mobile_transfer_number) covers all three; only ДС uses a
 different number (a card, config.receiving_card_number).
 
+Every amount that ends up in a pay link or shown to the customer
+(amount_somoni here) is always the selected product's real price, copied
+onto the Order row at creation time (bot/db/repo.py:create_order) and
+never re-derived from user text, a callback_data value, or a URL — see
+bot/handlers/customer.py:_create_orders_and_invoice.
+
 `AlifPayProvider` and `DCBankProvider` below are scaffolds, not working
 integrations — they are the *real* payment-gateway APIs (Alif Business /
-Dushanbe City Bank), not the manual "💳 Алиф" button. Neither Alif nor DC
-Bank publishes a public generic REST spec — the real Shop ID, Secret Key,
+Dushanbe City Bank) that would let this bot confirm payment automatically
+via webhook, not the manual buttons above. Neither Alif nor DC Bank
+publishes a public generic REST spec — the real Shop ID, Secret Key,
 endpoint URLs and signature scheme are handed to you directly after you
 sign a merchant agreement. Fill in `create_invoice` and `verify_callback`
 from that document before switching PAYMENT_PROVIDER=alif/dc in
@@ -63,21 +72,34 @@ class PaymentProvider(ABC):
         """
 
 
-def _build_expresspay_link(order_id: int, amount_somoni: float) -> str | None:
-    """Pay-by-link with the recipient card and exact amount pre-filled, so
-    the customer just taps "Пардохт" and confirms — reverse-engineered from
-    a real link a similar shop's bot sends
-    (?A=<card>&s=<amount>&c=<label>&f1=<code>). f1 turned out to be
-    required (the page errors "one of the parameters is empty" without
-    it) — see config.expresspay_f1. Tied to the shop's own ExpressPay
-    merchant card, so this only ever applies to the default card method,
-    never to the Alif Mobi manual transfer (see
-    AlifManualProvider._pay_link)."""
+def _build_dc_pay_link(amount_somoni: float) -> str | None:
+    """DC Bank's own card-to-card "tap to pay" portal — pre-fills the
+    receiving card and *exact order amount* so the customer just taps
+    "💳 Пардохт" and confirms, instead of typing a card number and amount
+    by hand (and possibly mistyping the amount). amount_somoni is always
+    the order's real FINAL PRICE (see bot/db/repo.py:create_order, which
+    copies it straight from the selected Product — never from user text
+    or a callback), so this link is never a stale/hardcoded price."""
     if not config.receiving_card_number:
         return None
     return (
-        f"{config.expresspay_base_url}?A={config.receiving_card_number}"
-        f"&s={amount_somoni:.2f}&c=order_{order_id}&f1={config.expresspay_f1}"
+        f"{config.dc_pay_base_url}?a={config.receiving_card_number}"
+        f"&s={amount_somoni:.2f}&c={config.dc_pay_card_code}&f1={config.dc_pay_f1}"
+    )
+
+
+def _build_alif_mobi_link(amount_somoni: float) -> str | None:
+    """Alif Mobi's in-app "provider" bill-payment deep link — opens the
+    Alif Mobi app straight to this shop's registered provider entry with
+    the *exact order amount* pre-filled. Same "never hardcoded" guarantee
+    as _build_dc_pay_link above: amount_somoni is always the order's real
+    FINAL PRICE, read from the Product row via the order, never from
+    anything the customer could have typed or tapped."""
+    if not config.alif_mobi_account:
+        return None
+    return (
+        f"{config.alif_mobi_base_url}?id={config.alif_mobi_provider_id}"
+        f"&amount={amount_somoni:.2f}&account={config.alif_mobi_account}"
     )
 
 
@@ -94,7 +116,7 @@ class ManualBankTransferProvider(PaymentProvider):
         return config.receiving_card_number
 
     def _pay_link(self, order_id: int, amount_somoni: float) -> str | None:
-        return _build_expresspay_link(order_id, amount_somoni)
+        return _build_dc_pay_link(amount_somoni)
 
     async def _get_card_photo_file_id(self, session) -> str | None:
         from bot.db.repo import get_card_photo_file_id
@@ -149,10 +171,12 @@ class ManualBankTransferProvider(PaymentProvider):
 
 
 class AlifManualProvider(ManualBankTransferProvider):
-    """The "💳 Алиф" button — a manual Alif Mobi card-to-card transfer,
-    with the exact same admin-confirmed proof flow as
-    ManualBankTransferProvider above (identical create_invoice logic,
-    inherited unchanged). Not a real Alif Business API integration — see
+    """The "💳 Алиф" button — opens the Alif Mobi app directly to this
+    shop's provider entry with the exact order amount pre-filled
+    (_build_alif_mobi_link), with the same admin-confirmed proof flow as
+    every other manual method above; the phone number is still shown as
+    plain-text backup in case the customer's Alif Mobi app isn't
+    installed. Not a real Alif Business API integration — see
     AlifPayProvider below for that placeholder. Card photo is a separate
     setting (/setalifcardphoto) so it never shows the wrong card."""
 
@@ -163,10 +187,7 @@ class AlifManualProvider(ManualBankTransferProvider):
         return config.mobile_transfer_number or config.receiving_card_number
 
     def _pay_link(self, order_id: int, amount_somoni: float) -> str | None:
-        # ExpressPay pay-by-link is tied to the shop's main receiving card
-        # specifically — an Alif Mobi transfer is entered by hand in the
-        # Alif app, so no pre-filled link applies here.
-        return None
+        return _build_alif_mobi_link(amount_somoni)
 
     async def _get_card_photo_file_id(self, session) -> str | None:
         from bot.db.repo import get_alif_card_photo_file_id
