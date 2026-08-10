@@ -72,38 +72,45 @@ class Config:
     port: int = int(os.getenv("PORT", "8080"))
 
     payment_provider: str = os.getenv("PAYMENT_PROVIDER", "manual")
-    # Your own card that customers pay into — shown as plain text and (if
-    # set) used to build a pre-filled ExpressPay pay-by-link so the
-    # customer doesn't have to type the card number/amount by hand.
+    # Your own card that customers pay into — shown as plain text on the
+    # "💳 ДС" screen and used to build the pre-filled DC pay-by-link below.
     receiving_card_number: str = os.getenv("RECEIVING_CARD_NUMBER", "9762000199761387")
-    # Plain http:// on purpose — pay.expresspay.tj's TLS cert doesn't match
-    # this hostname (ERR_CERT_COMMON_NAME_INVALID over https); the reference
-    # bot's real working link used http:// too.
-    expresspay_base_url: str = os.getenv("EXPRESSPAY_BASE_URL", "http://pay.expresspay.tj/")
+    # DC Bank's own card-to-card "tap to pay" portal (pay.dc.tj) — opens
+    # with the receiving card + exact order amount pre-filled, so the
+    # customer just taps "💳 Пардохт" and confirms instead of typing it by
+    # hand. All parts (domain, "c" code, "f1") come from a real working
+    # link for this shop's DC card. Falls back to the old EXPRESSPAY_*
+    # env var names first, in case those were already set on Render — no
+    # change needed there if so.
+    dc_pay_base_url: str = os.getenv("DC_PAY_BASE_URL") or os.getenv("EXPRESSPAY_BASE_URL") or "https://pay.dc.tj/"
+    # "c" identifies this shop's card registration with DC's payment
+    # portal — fixed per shop (confirmed from a real working link), not
+    # per order; DC's page itself doesn't hand it back to us afterwards,
+    # so there's nothing to match against later either way.
+    dc_pay_card_code: str = os.getenv("DC_PAY_CARD_CODE", "almazshop_01")
     # Required — the page errors with "one of the parameters is empty"
     # without it. "133" is the value copied from a real working link;
-    # its actual meaning (service/tariff code?) is unconfirmed. If
-    # ExpressPay ever tells you the correct value for your own account,
-    # override it here.
-    expresspay_f1: str = os.getenv("EXPRESSPAY_F1", "133")
+    # its actual meaning (service/tariff code?) is unconfirmed.
+    dc_pay_f1: str = os.getenv("DC_PAY_F1") or os.getenv("EXPRESSPAY_F1") or "133"
+    # Alif Mobi's in-app "provider" bill-payment deep link — opens the
+    # Alif Mobi app directly to this shop's registered provider entry with
+    # the exact order amount pre-filled. id = the provider entry, account
+    # = this shop's registered account within that entry (both real
+    # values from a working link, not guessed).
+    alif_mobi_base_url: str = os.getenv("ALIF_MOBI_BASE_URL", "https://alifmobi.page.link/providers")
+    alif_mobi_provider_id: str = os.getenv("ALIF_MOBI_PROVIDER_ID", "124")
+    alif_mobi_account: str = os.getenv("ALIF_MOBI_ACCOUNT", "976820008")
     alif_shop_id: str = os.getenv("ALIF_SHOP_ID", "")
     alif_secret_key: str = os.getenv("ALIF_SECRET_KEY", "")
     alif_api_base_url: str = os.getenv("ALIF_API_BASE_URL", "")
     alif_callback_path: str = os.getenv("ALIF_CALLBACK_PATH", "/webhooks/alif")
-    # Card/phone number that receives Alif Mobi transfers — shown to the
-    # customer on the "💳 Алиф" manual payment screen (see
-    # bot/services/payments.py:AlifManualProvider). This is a *manual*
-    # transfer method (same admin-confirmed proof flow as the default card
-    # method), not the real Alif Business gateway above — falls back to
-    # receiving_card_number if left empty.
-    # Alif, Эсхата, ва Амонатбонк — ҳар се ба ҳамин ЯК рақами мобилӣ
-    # мераванд (тасдиқи соҳиби дӯкон) — ин манбаи ягонаи он рақам барои
-    # ҳар се усул (бинед bot/services/payments.py:AlifManualProvider /
-    # EskhataManualProvider / AmonatbonkManualProvider). Агар
-    # MOBILE_TRANSFER_NUMBER дар Render гузошта нашуда бошад, аввал ба
-    # арзишҳои кӯҳнаи DC_TRANSFER_NUMBER/ALIF_CARD_NUMBER (агар аз пеш
-    # гузошта шуда бошанд) бармегардад — ҳеҷ тағйире дар Render лозим
-    # нест — баъд ба рақами воқеӣ, ки шумо додед.
+    # The phone number shown as plain text alongside the tap-to-pay Alif
+    # Mobi link above (in case the customer's Alif Mobi app isn't
+    # installed and they need to send manually instead) — and the same
+    # number Эсхата/Амонатбонк use, since all three land in the same
+    # underlying account. Falls back to the old DC_TRANSFER_NUMBER/
+    # ALIF_CARD_NUMBER env var names first — no change needed on Render
+    # if those were already set.
     mobile_transfer_number: str = (
         os.getenv("MOBILE_TRANSFER_NUMBER")
         or os.getenv("DC_TRANSFER_NUMBER")
@@ -149,17 +156,26 @@ class Config:
     review_channel_id: str = os.getenv("REVIEW_CHANNEL_ID", "@otziv_chat_almaz_shop_bot")
 
     # Force-Join gate (see bot/middlewares.py): the bot refuses to do
-    # anything else until the user is a confirmed member of this channel.
-    # CHANNEL_USERNAME must be in "@handle" form — that's what
+    # anything else — including /start — until the user is a confirmed
+    # member of this channel. Left EMPTY (disabled) by default on purpose:
+    # a placeholder channel here that the bot isn't actually an admin of
+    # makes bot.get_chat_member() fail for every non-admin user, which the
+    # gate then treats as "not subscribed" — every regular customer's
+    # /start silently gets the join-gate screen instead of the main menu
+    # (admins always bypass the gate, so this is easy to miss while
+    # testing as the owner). Set CHANNEL_USERNAME in Render's Environment
+    # tab to a real channel the bot is an admin of to turn the gate back
+    # on. CHANNEL_USERNAME must be in "@handle" form — that's what
     # bot.get_chat_member() expects as chat_id. CHANNEL_URL is the public
     # t.me link shown on the "📢 Join Channel" button; if left blank it's
-    # derived automatically from CHANNEL_USERNAME. Leave CHANNEL_USERNAME
-    # empty to disable the gate entirely (e.g. while testing locally).
-    channel_username: str = os.getenv("CHANNEL_USERNAME", "@otziv_chat_almaz_shop_bot")
+    # derived automatically from CHANNEL_USERNAME.
+    channel_username: str = os.getenv("CHANNEL_USERNAME", "")
     channel_url: str = field(
         default_factory=lambda: os.getenv("CHANNEL_URL", "")
         or (
-            f"https://t.me/{os.getenv('CHANNEL_USERNAME', '@otziv_chat_almaz_shop_bot').lstrip('@')}"
+            f"https://t.me/{os.getenv('CHANNEL_USERNAME', '').lstrip('@')}"
+            if os.getenv("CHANNEL_USERNAME")
+            else ""
         )
     )
 
