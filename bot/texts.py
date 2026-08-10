@@ -68,3 +68,22 @@ def format_recipient(ff_player_id: str, recipient_extra: str | None = None) -> s
     if recipient_extra:
         return f"{ff_player_id} (Server: {recipient_extra})"
     return ff_player_id
+
+
+# Human-readable category name for admin notification captions (🆕
+# Фармоиши #.../Товар/Категория) — see bot/handlers/customer.py:
+# receive_payment_proof and pay_with_balance.
+CATEGORY_DISPLAY_NAMES: dict[str, str] = {
+    "diamonds": "Free Fire (СНГ)",
+    "telegram": "Telegram Stars",
+    "pubg": "PUBG Mobile",
+    "standoff2": "Standoff 2",
+    "ff_brazil": "Free Fire (Бразилия)",
+    "ff_indonesia": "Free Fire (Индонезия)",
+    "combo": "Комбо",
+}
+
+
+def category_display_name(category) -> str:
+    key = category.value if hasattr(category, "value") else str(category)
+    return CATEGORY_DISPLAY_NAMES.get(key, key)
