@@ -2,12 +2,17 @@ import asyncio
 import logging
 
 import aiohttp
+from aiohttp import web
 from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
 from aiogram.exceptions import TelegramBadRequest
-from aiogram.types import BotCommand, BotCommandScopeChat, BotCommandScopeDefault, ErrorEvent
-from aiohttp import web
+from aiogram.types import (
+    BotCommand,
+    BotCommandScopeChat,
+    BotCommandScopeDefault,
+    ErrorEvent,
+)
 
 from bot.config import config
 from bot.db.session import init_db
@@ -16,17 +21,20 @@ from bot.handlers import admin, customer
 from bot.middlewares import ForceJoinMiddleware
 from bot.services.sms_webhook import register_sms_webhook
 
-logging.basicConfig(level=logging.INFO)
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
+)
+
+logger = logging.getLogger(__name__)
 
 
 def build_dispatcher() -> Dispatcher:
     dp = Dispatcher(storage=storage)
 
-    # Force-Join gate — registered as an outer middleware on the
-    # dispatcher's own message/callback_query observers, so it applies to
-    # every router included below (admin and customer alike) before any of
-    # their handlers ever run. See bot/middlewares.py.
     force_join = ForceJoinMiddleware()
+
     dp.message.outer_middleware(force_join)
     dp.callback_query.outer_middleware(force_join)
 
@@ -34,157 +42,320 @@ def build_dispatcher() -> Dispatcher:
     dp.include_router(customer.router)
 
     @dp.errors()
-    async def handle_stale_edit(event: ErrorEvent) -> bool:
-        """Tapping a button whose screen has since been re-edited to the
-        exact same text/markup (e.g. "Ба меню" while already on the main
-        menu) makes Telegram's editMessageText call fail with "message is
-        not modified". Left uncaught, that exception stops the handler
-        before it reaches callback.answer() — so the button's loading
-        spinner never clears and just spins forever. Swallow only this
-        specific error and clear the spinner instead."""
-        if isinstance(event.exception, TelegramBadRequest) and "message is not modified" in str(event.exception):
+    async def handle_errors(event: ErrorEvent) -> bool:
+        if (
+            isinstance(event.exception, TelegramBadRequest)
+            and "message is not modified" in str(event.exception)
+        ):
             callback = event.update.callback_query
-            if callback is not None:
-                await callback.answer()
+
+            if callback:
+                try:
+                    await callback.answer()
+                except Exception:
+                    pass
+
             return True
+
+        logger.exception(
+            "Unhandled Telegram update error",
+            exc_info=event.exception,
+        )
+
         return False
 
     return dp
 
 
 async def _configure_bot_commands(bot: Bot) -> None:
-    """Populates the "/" command menu in Telegram's chat UI. /admin is
-    registered with a per-chat scope (BotCommandScopeChat), so it's only
-    even *visible* in the menu for chats with an admin — not just
-    permission-checked in code (bot/handlers/admin.py:admin_panel already
-    does that too, as defense in depth)."""
     await bot.set_my_commands(
-        [BotCommand(command="start", description="Асосӣ меню")],
+        [
+            BotCommand(
+                command="start",
+                description="Асосӣ меню",
+            )
+        ],
         scope=BotCommandScopeDefault(),
     )
 
     admin_commands = [
-        BotCommand(command="start", description="Асосӣ меню"),
-        BotCommand(command="admin", description="Панели админ"),
+        BotCommand(
+            command="start",
+            description="Асосӣ меню",
+        ),
+        BotCommand(
+            command="admin",
+            description="Панели админ",
+        ),
     ]
+
     for admin_id in config.admin_user_ids:
         try:
-            await bot.set_my_commands(admin_commands, scope=BotCommandScopeChat(chat_id=admin_id))
+            await bot.set_my_commands(
+                admin_commands,
+                scope=BotCommandScopeChat(chat_id=admin_id),
+            )
         except Exception as exc:
-            # Telegram requires the bot to already have a chat with this
-            # user (i.e. they've messaged it at least once) before a
-            # per-chat command scope can be set for them — an admin who
-            # hasn't started the bot yet just keeps the default menu until
-            # they do. Never worth failing startup over.
-            logging.warning("Could not set admin bot-commands for %s: %s", admin_id, exc)
+            logger.warning(
+                "Could not configure admin commands for %s: %s",
+                admin_id,
+                exc,
+            )
 
 
-async def run_polling(bot: Bot, dp: Dispatcher) -> None:
-    """Local development mode: the bot itself keeps asking Telegram for updates."""
-    await bot.delete_webhook(drop_pending_updates=True)
+async def _self_ping_loop(
+    health_url: str,
+    interval_seconds: int = 600,
+) -> None:
+    timeout = aiohttp.ClientTimeout(total=15)
+
+    async with aiohttp.ClientSession(timeout=timeout) as session:
+        while True:
+            try:
+                await asyncio.sleep(interval_seconds)
+
+                async with session.get(health_url) as response:
+                    logger.info(
+                        "KEEPALIVE: %s -> HTTP %s",
+                        health_url,
+                        response.status,
+                    )
+
+            except asyncio.CancelledError:
+                logger.info("Keepalive task stopped")
+                raise
+
+            except Exception as exc:
+                logger.warning(
+                    "KEEPALIVE FAILED: %s",
+                    exc,
+                )
+
+
+async def run_polling(
+    bot: Bot,
+    dp: Dispatcher,
+) -> None:
+    logger.info("Starting polling mode")
+
+    await bot.delete_webhook(
+        drop_pending_updates=True,
+    )
+
     await dp.start_polling(bot)
 
 
-async def _self_ping_loop(url: str, interval_seconds: int) -> None:
-    """Render's free tier sleeps the service after ~15 min without incoming
-    HTTP traffic, which then makes the *next* real user wait ~30-60s for a
-    cold start. Pinging our own health endpoint on a shorter interval keeps
-    it looking active so it never gets the chance to sleep."""
-    async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=10)) as session:
-        while True:
-            await asyncio.sleep(interval_seconds)
-            try:
-                async with session.get(url) as resp:
-                    logging.info("Self-ping %s -> HTTP %s", url, resp.status)
-            except Exception as exc:
-                logging.warning("Self-ping to %s failed: %s", url, exc)
+async def run_webhook(
+    bot: Bot,
+    dp: Dispatcher,
+) -> None:
+    from aiogram.webhook.aiohttp_server import (
+        SimpleRequestHandler,
+        setup_application,
+    )
 
+    public_url = config.public_url.rstrip("/")
 
-async def run_webhook(bot: Bot, dp: Dispatcher) -> None:
-    """Production mode (e.g. Render): Telegram pushes updates to our public URL.
+    webhook_path = "/" + config.telegram_webhook_path.lstrip("/")
 
-    Render (and most hosts) route external traffic to whatever port your
-    process listens on via the $PORT environment variable, and expect the
-    process to keep running and answering HTTP requests — that's what this
-    aiohttp app does. PUBLIC_URL must be the exact https URL Render gave
-    your service, e.g. https://telegrambotff-jbqe.onrender.com
-    """
-    from aiogram.webhook.aiohttp_server import SimpleRequestHandler, setup_application
+    webhook_url = public_url + webhook_path
 
-    webhook_url = config.public_url.rstrip("/health") + config.telegram_webhook_path
+    health_url = public_url + "/health"
+
+    logger.info("==========================================")
+    logger.info("PUBLIC URL: %s", public_url)
+    logger.info("WEBHOOK PATH: %s", webhook_path)
+    logger.info("WEBHOOK URL: %s", webhook_url)
+    logger.info("HEALTH URL: %s", health_url)
+    logger.info("PORT: %s", config.port)
+    logger.info("==========================================")
+
     await bot.set_webhook(
         url=webhook_url,
         secret_token=config.telegram_webhook_secret or None,
         drop_pending_updates=True,
     )
 
+    webhook_info = await bot.get_webhook_info()
+
+    logger.info(
+        "TELEGRAM WEBHOOK INFO: url=%s pending=%s "
+        "last_error_date=%s last_error=%s",
+        webhook_info.url,
+        webhook_info.pending_update_count,
+        webhook_info.last_error_date,
+        webhook_info.last_error_message,
+    )
+
     app = web.Application()
 
-    async def health(_request: web.Request) -> web.Response:
-        return web.Response(text="OK")
+    async def root(_request: web.Request) -> web.Response:
+        return web.Response(
+            text="ALMAZSHOP BOT ONLINE",
+            status=200,
+        )
 
+    async def health(_request: web.Request) -> web.Response:
+        return web.Response(
+            text="OK",
+            status=200,
+        )
+
+    app.router.add_get("/", root)
     app.router.add_get("/health", health)
+
     register_sms_webhook(app, bot)
 
-    SimpleRequestHandler(
+    webhook_handler = SimpleRequestHandler(
         dispatcher=dp,
         bot=bot,
         secret_token=config.telegram_webhook_secret or None,
-    ).register(app, path=config.telegram_webhook_path)
+    )
 
-    setup_application(app, dp, bot=bot)
+    webhook_handler.register(
+        app,
+        path=webhook_path,
+    )
+
+    logger.info(
+        "REGISTERED TELEGRAM WEBHOOK ROUTE: POST %s",
+        webhook_path,
+    )
+
+    setup_application(
+        app,
+        dp,
+        bot=bot,
+    )
 
     runner = web.AppRunner(app)
+
     await runner.setup()
-    site = web.TCPSite(runner, host="0.0.0.0", port=config.port)
+
+    site = web.TCPSite(
+        runner,
+        host="0.0.0.0",
+        port=config.port,
+    )
+
     await site.start()
-    logging.info("Webhook server listening on port %s, webhook url %s", config.port, webhook_url)
 
-    if config.keepalive_ping_seconds > 0:
-        asyncio.create_task(_self_ping_loop(config.public_url, config.keepalive_ping_seconds))
-        logging.info("Self-ping keepalive enabled: every %ss", config.keepalive_ping_seconds)
+    logger.info("==========================================")
+    logger.info(
+        "SERVER STARTED: 0.0.0.0:%s",
+        config.port,
+    )
+    logger.info(
+        "WEBHOOK LISTENING: POST %s",
+        webhook_path,
+    )
+    logger.info(
+        "TELEGRAM WEBHOOK: %s",
+        webhook_url,
+    )
+    logger.info(
+        "HEALTH CHECK: %s",
+        health_url,
+    )
+    logger.info("==========================================")
 
-    # Keep the process alive; aiohttp runs the handlers in the background.
+    # 10-minute keepalive.
+    # 600 seconds = 10 minutes.
+    keepalive_seconds = 600
+
+    asyncio.create_task(
+        _self_ping_loop(
+            health_url,
+            keepalive_seconds,
+        )
+    )
+
+    logger.info(
+        "KEEPALIVE ENABLED: every 600 seconds (10 minutes)",
+    )
+
     await asyncio.Event().wait()
 
 
-async def _init_db_with_retry(max_attempts: int = 5) -> None:
-    """A transient DB hiccup right at cold start (Supabase/Render both
-    briefly unreachable a few seconds after waking up, a DNS blip, etc.)
-    used to crash the whole process on the very first await — Render would
-    then mark the deploy "failed" instead of just retrying a moment later.
-    Retry with backoff before giving up for real."""
+async def _init_db_with_retry(
+    max_attempts: int = 5,
+) -> None:
     delay = 2
+
     for attempt in range(1, max_attempts + 1):
         try:
             await init_db()
+
+            logger.info(
+                "DATABASE INITIALIZED SUCCESSFULLY",
+            )
+
             return
+
         except Exception as exc:
             if attempt == max_attempts:
-                logging.error("init_db() failed after %s attempts, giving up: %s", max_attempts, exc)
+                logger.exception(
+                    "Database initialization failed "
+                    "after %s attempts",
+                    max_attempts,
+                )
+
                 raise
-            logging.warning(
-                "init_db() failed (attempt %s/%s): %s — retrying in %ss",
-                attempt, max_attempts, exc, delay,
+
+            logger.warning(
+                "Database initialization failed "
+                "(attempt %s/%s): %s. "
+                "Retrying in %ss",
+                attempt,
+                max_attempts,
+                exc,
+                delay,
             )
+
             await asyncio.sleep(delay)
+
             delay = min(delay * 2, 30)
 
 
 async def main() -> None:
     if not config.bot_token:
-        raise RuntimeError("BOT_TOKEN is not set. Copy .env.example to .env and fill it in.")
+        raise RuntimeError(
+            "BOT_TOKEN is not set. "
+            "Copy .env.example to .env and fill it in."
+        )
 
     await _init_db_with_retry()
 
-    bot = Bot(token=config.bot_token, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
+    bot = Bot(
+        token=config.bot_token,
+        default=DefaultBotProperties(
+            parse_mode=ParseMode.HTML,
+        ),
+    )
+
     dp = build_dispatcher()
+
     await _configure_bot_commands(bot)
 
     if config.public_url:
-        await run_webhook(bot, dp)
+        logger.info(
+            "PUBLIC_URL detected -> starting WEBHOOK mode",
+        )
+
+        await run_webhook(
+            bot,
+            dp,
+        )
+
     else:
-        await run_polling(bot, dp)
+        logger.info(
+            "PUBLIC_URL is empty -> starting POLLING mode",
+        )
+
+        await run_polling(
+            bot,
+            dp,
+        )
 
 
 if __name__ == "__main__":
