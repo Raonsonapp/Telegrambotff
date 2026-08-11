@@ -24,7 +24,7 @@ from bot.services.sms_webhook import register_sms_webhook
 
 logging.basicConfig(
     level=logging.INFO,
-    format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
+    format="%(asctime)s | %(levelname)s | %(message)s",
 )
 
 logger = logging.getLogger(__name__)
@@ -44,8 +44,10 @@ def build_dispatcher() -> Dispatcher:
     dp.include_router(customer.router)
 
     @dp.errors()
-    async def handle_errors(event: ErrorEvent) -> bool:
-        """Handle harmless Telegram 'message is not modified' errors."""
+    async def handle_stale_edit(event: ErrorEvent) -> bool:
+        """
+        Ignore 'message is not modified' errors.
+        """
         if (
             isinstance(event.exception, TelegramBadRequest)
             and "message is not modified" in str(event.exception)
@@ -66,9 +68,11 @@ def build_dispatcher() -> Dispatcher:
 
 
 async def configure_bot_commands(bot: Bot) -> None:
-    """Configure Telegram command menu."""
+    """
+    Configure Telegram commands.
+    """
 
-    # Default commands
+    # Normal users
     await bot.set_my_commands(
         [
             BotCommand(
@@ -79,7 +83,7 @@ async def configure_bot_commands(bot: Bot) -> None:
         scope=BotCommandScopeDefault(),
     )
 
-    # Admin commands
+    # Admins
     admin_commands = [
         BotCommand(
             command="start",
@@ -95,9 +99,10 @@ async def configure_bot_commands(bot: Bot) -> None:
         try:
             await bot.set_my_commands(
                 admin_commands,
-                scope=BotCommandScopeChat(chat_id=admin_id),
+                scope=BotCommandScopeChat(
+                    chat_id=admin_id
+                ),
             )
-
         except Exception as exc:
             logger.warning(
                 "Could not set admin commands for %s: %s",
@@ -110,40 +115,50 @@ async def run_polling(
     bot: Bot,
     dp: Dispatcher,
 ) -> None:
-    """Local polling mode."""
+    """
+    Local polling mode.
+    """
 
-    await bot.delete_webhook(drop_pending_updates=True)
+    logger.info("Starting polling mode...")
 
-    logger.info("Starting Telegram polling...")
+    await bot.delete_webhook(
+        drop_pending_updates=True
+    )
 
     await dp.start_polling(bot)
 
 
 async def self_ping_loop(
-    url: str,
+    public_url: str,
     interval_seconds: int,
 ) -> None:
     """
-    Ping /health every N seconds.
-
-    This keeps the Render free instance receiving HTTP traffic.
+    Send a request every N seconds to keep the Render service active.
     """
 
-    health_url = url.rstrip("/") + "/health"
+    health_url = public_url.rstrip("/") + "/health"
 
-    timeout = aiohttp.ClientTimeout(total=15)
+    timeout = aiohttp.ClientTimeout(
+        total=15
+    )
 
-    async with aiohttp.ClientSession(timeout=timeout) as session:
+    async with aiohttp.ClientSession(
+        timeout=timeout
+    ) as session:
 
         while True:
 
-            await asyncio.sleep(interval_seconds)
-
             try:
-                async with session.get(health_url) as response:
+                await asyncio.sleep(
+                    interval_seconds
+                )
+
+                async with session.get(
+                    health_url
+                ) as response:
 
                     logger.info(
-                        "KEEPALIVE: %s -> HTTP %s",
+                        "KEEPALIVE -> %s -> HTTP %s",
                         health_url,
                         response.status,
                     )
@@ -152,9 +167,8 @@ async def self_ping_loop(
                 raise
 
             except Exception as exc:
-
                 logger.warning(
-                    "KEEPALIVE failed: %s",
+                    "KEEPALIVE ERROR: %s",
                     exc,
                 )
 
@@ -164,12 +178,11 @@ async def run_webhook(
     dp: Dispatcher,
 ) -> None:
     """
-    Production webhook mode for Render.
+    Render production webhook mode.
 
-    Important:
-    The aiohttp server is started FIRST.
-    Only after the server is listening do we register
-    the Telegram webhook.
+    IMPORTANT:
+    The HTTP server and /tg-webhook route are started FIRST.
+    Only after that do we tell Telegram to use the webhook.
     """
 
     from aiogram.webhook.aiohttp_server import (
@@ -178,54 +191,70 @@ async def run_webhook(
     )
 
     # ---------------------------------------------------------
-    # URLs
+    # URL
     # ---------------------------------------------------------
 
-    public_url = config.public_url.rstrip("/")
+    public_url = config.public_url.strip().rstrip("/")
 
-    webhook_path = config.telegram_webhook_path or "/tg-webhook"
+    webhook_path = (
+        config.telegram_webhook_path.strip()
+        or "/tg-webhook"
+    )
 
     if not webhook_path.startswith("/"):
         webhook_path = "/" + webhook_path
 
-    webhook_url = public_url + webhook_path
+    webhook_url = (
+        public_url + webhook_path
+    )
 
-    logger.info("PUBLIC_URL: %s", public_url)
-    logger.info("WEBHOOK_PATH: %s", webhook_path)
-    logger.info("WEBHOOK_URL: %s", webhook_url)
+    logger.info(
+        "PUBLIC_URL = %s",
+        public_url,
+    )
+
+    logger.info(
+        "WEBHOOK_PATH = %s",
+        webhook_path,
+    )
+
+    logger.info(
+        "WEBHOOK_URL = %s",
+        webhook_url,
+    )
 
     # ---------------------------------------------------------
-    # AIOHTTP APP
+    # Create aiohttp application
     # ---------------------------------------------------------
 
     app = web.Application()
 
-    # Health endpoint
-    async def health(_request: web.Request) -> web.Response:
+    # ---------------------------------------------------------
+    # Health endpoints
+    # ---------------------------------------------------------
+
+    async def health(
+        _request: web.Request,
+    ) -> web.Response:
         return web.Response(
             text="OK",
             status=200,
         )
 
+    # /health
     app.router.add_get(
         "/health",
         health,
     )
 
-    # Optional root endpoint
-    async def root(_request: web.Request) -> web.Response:
-        return web.Response(
-            text="Telegram bot is running.",
-            status=200,
-        )
-
+    # / also returns OK
     app.router.add_get(
         "/",
-        root,
+        health,
     )
 
     # ---------------------------------------------------------
-    # SMS WEBHOOK
+    # SMS webhook
     # ---------------------------------------------------------
 
     register_sms_webhook(
@@ -234,21 +263,28 @@ async def run_webhook(
     )
 
     # ---------------------------------------------------------
-    # TELEGRAM WEBHOOK HANDLER
+    # Telegram webhook handler
     # ---------------------------------------------------------
 
-    secret_token = config.telegram_webhook_secret or None
-
-    request_handler = SimpleRequestHandler(
+    webhook_handler = SimpleRequestHandler(
         dispatcher=dp,
         bot=bot,
-        secret_token=secret_token,
+        secret_token=(
+            config.telegram_webhook_secret
+            or None
+        ),
     )
 
-    request_handler.register(
+    # IMPORTANT:
+    # Register /tg-webhook BEFORE set_webhook()
+    webhook_handler.register(
         app,
         path=webhook_path,
     )
+
+    # ---------------------------------------------------------
+    # Connect aiohttp with aiogram
+    # ---------------------------------------------------------
 
     setup_application(
         app,
@@ -257,77 +293,110 @@ async def run_webhook(
     )
 
     # ---------------------------------------------------------
-    # START HTTP SERVER FIRST
+    # Start HTTP server
     # ---------------------------------------------------------
 
-    runner = web.AppRunner(app)
+    runner = web.AppRunner(
+        app
+    )
 
     await runner.setup()
 
     site = web.TCPSite(
         runner,
-        host=config.webhook_server_host,
+        host="0.0.0.0",
         port=config.port,
     )
 
     await site.start()
 
     logger.info(
-        "HTTP SERVER STARTED: %s:%s",
-        config.webhook_server_host,
+        "HTTP SERVER STARTED"
+    )
+
+    logger.info(
+        "LISTENING ON PORT: %s",
         config.port,
     )
 
     logger.info(
-        "Telegram webhook route: %s",
+        "WEBHOOK ROUTE READY: %s",
         webhook_path,
     )
 
     # ---------------------------------------------------------
-    # NOW REGISTER TELEGRAM WEBHOOK
+    # IMPORTANT:
+    # Server is READY now.
+    # ONLY NOW set Telegram webhook.
     # ---------------------------------------------------------
 
     try:
 
-        await bot.delete_webhook(
-            drop_pending_updates=False,
-        )
-
         await bot.set_webhook(
             url=webhook_url,
-            secret_token=secret_token,
+            secret_token=(
+                config.telegram_webhook_secret
+                or None
+            ),
             drop_pending_updates=True,
         )
 
-        webhook_info = await bot.get_webhook_info()
-
         logger.info(
-            "TELEGRAM WEBHOOK REGISTERED: %s",
-            webhook_info.url,
+            "TELEGRAM WEBHOOK SET SUCCESSFULLY"
         )
 
         logger.info(
-            "WEBHOOK PENDING UPDATES: %s",
-            webhook_info.pending_update_count,
+            "TELEGRAM WEBHOOK URL: %s",
+            webhook_url,
         )
-
-        if webhook_info.last_error_message:
-            logger.warning(
-                "TELEGRAM LAST WEBHOOK ERROR: %s",
-                webhook_info.last_error_message,
-            )
 
     except Exception as exc:
 
         logger.exception(
-            "FAILED TO REGISTER TELEGRAM WEBHOOK: %s",
+            "FAILED TO SET TELEGRAM WEBHOOK: %s",
             exc,
         )
 
         raise
 
     # ---------------------------------------------------------
-    # KEEPALIVE
+    # Get Telegram webhook status
+    # ---------------------------------------------------------
+
+    try:
+
+        info = await bot.get_webhook_info()
+
+        logger.info(
+            "WEBHOOK INFO:"
+        )
+
+        logger.info(
+            "URL: %s",
+            info.url,
+        )
+
+        logger.info(
+            "PENDING UPDATES: %s",
+            info.pending_update_count,
+        )
+
+        if info.last_error_message:
+
+            logger.warning(
+                "LAST TELEGRAM ERROR: %s",
+                info.last_error_message,
+            )
+
+    except Exception as exc:
+
+        logger.warning(
+            "Could not get webhook info: %s",
+            exc,
+        )
+
+    # ---------------------------------------------------------
+    # Keepalive
     # ---------------------------------------------------------
 
     if config.keepalive_ping_seconds > 0:
@@ -347,12 +416,16 @@ async def run_webhook(
     else:
 
         logger.info(
-            "KEEPALIVE DISABLED",
+            "KEEPALIVE DISABLED"
         )
 
     # ---------------------------------------------------------
-    # KEEP PROCESS ALIVE
+    # Keep server alive
     # ---------------------------------------------------------
+
+    logger.info(
+        "BOT IS RUNNING IN WEBHOOK MODE"
+    )
 
     await asyncio.Event().wait()
 
@@ -360,7 +433,9 @@ async def run_webhook(
 async def init_db_with_retry(
     max_attempts: int = 5,
 ) -> None:
-    """Initialize database with retry."""
+    """
+    Initialize database with retry.
+    """
 
     delay = 2
 
@@ -374,7 +449,7 @@ async def init_db_with_retry(
             await init_db()
 
             logger.info(
-                "Database initialized successfully.",
+                "DATABASE INITIALIZED"
             )
 
             return
@@ -384,23 +459,27 @@ async def init_db_with_retry(
             if attempt == max_attempts:
 
                 logger.exception(
-                    "Database initialization failed after %s attempts.",
+                    "DATABASE FAILED AFTER %s ATTEMPTS",
                     max_attempts,
                 )
 
                 raise
 
             logger.warning(
-                "Database initialization failed "
-                "(attempt %s/%s): %s. "
-                "Retrying in %s seconds...",
+                "DATABASE ERROR %s/%s: %s",
                 attempt,
                 max_attempts,
                 exc,
+            )
+
+            logger.info(
+                "Retrying in %s seconds...",
                 delay,
             )
 
-            await asyncio.sleep(delay)
+            await asyncio.sleep(
+                delay
+            )
 
             delay = min(
                 delay * 2,
@@ -433,7 +512,7 @@ async def main() -> None:
     bot = Bot(
         token=config.bot_token,
         default=DefaultBotProperties(
-            parse_mode=ParseMode.HTML,
+            parse_mode=ParseMode.HTML
         ),
     )
 
@@ -447,16 +526,22 @@ async def main() -> None:
     # COMMANDS
     # ---------------------------------------------------------
 
-    await configure_bot_commands(bot)
+    await configure_bot_commands(
+        bot
+    )
 
     # ---------------------------------------------------------
-    # MODE
+    # WEBHOOK / POLLING
     # ---------------------------------------------------------
 
     if config.public_url.strip():
 
         logger.info(
-            "PUBLIC_URL detected. Starting WEBHOOK mode."
+            "PUBLIC_URL FOUND"
+        )
+
+        logger.info(
+            "STARTING WEBHOOK MODE"
         )
 
         await run_webhook(
@@ -467,7 +552,11 @@ async def main() -> None:
     else:
 
         logger.info(
-            "PUBLIC_URL is empty. Starting POLLING mode."
+            "PUBLIC_URL EMPTY"
+        )
+
+        logger.info(
+            "STARTING POLLING MODE"
         )
 
         await run_polling(
@@ -477,4 +566,23 @@ async def main() -> None:
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+
+    try:
+
+        asyncio.run(
+            main()
+        )
+
+    except KeyboardInterrupt:
+
+        logger.info(
+            "BOT STOPPED"
+        )
+
+    except Exception:
+
+        logger.exception(
+            "FATAL ERROR"
+        )
+
+        raise
