@@ -123,7 +123,7 @@ async def run_webhook(bot: Bot, dp: Dispatcher) -> None:
     async def health(_request: web.Request) -> web.Response:
         return web.Response(text="OK")
 
-    app.router.add_get("/", health)
+    app.router.add_get("/health", health)
     register_sms_webhook(app, bot)
 
     SimpleRequestHandler(
