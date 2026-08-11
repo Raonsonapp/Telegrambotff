@@ -59,11 +59,23 @@ from bot.services.payments import (
     get_payment_provider,
 )
 from bot.states import OrderFlow
-from bot.texts import FAQ_TEXT, TERMS_TEXT, category_display_name, format_recipient, order_status_label, payment_method_label
+from bot.texts import (
+    FAQ_TEXT,
+    TERMS_TEXT,
+    category_display_name,
+    format_recipient,
+    neon_header,
+    order_status_label,
+    payment_method_label,
+)
 
 router = Router(name="customer")
 
-WELCOME_TEXT = "Хуш омадед ба ALMAZZSHOP! 💎\nМагазини фурӯши хидматҳои рақамӣ.\n\nЧиро интихоб мекунед?"
+WELCOME_TEXT = (
+    neon_header("💎 ALMAZSHOP", "brand")
+    + "\n⚡ Gaming · 🔥 Premium · 🛡️ Reliable\n\n"
+    + "Хуш омадед ба ALMAZZSHOP! 💎\nМагазини фурӯши хидматҳои рақамӣ.\n\nЧиро интихоб мекунед?"
+)
 
 # Recipient-input prompt per category — see _recipient_prompt below.
 _RECIPIENT_PROMPTS: dict[ProductCategory, str] = {
@@ -688,7 +700,7 @@ async def _finalize_recipient(state: FSMContext, user_id: int, recipient: str, a
             player_name = await _try_validate_player_id(mapped.fzr_category_id, recipient)
 
     recipient_label = "📱 Username" if category == ProductCategory.TELEGRAM else "🆔 ID"
-    confirm_lines = ["🛒 <b>Тасдиқи фармоиш</b>\n", f"{recipient_label}: {recipient}"]
+    confirm_lines = [neon_header("🛒 Тасдиқи фармоиш", "diamonds"), f"{recipient_label}: {recipient}"]
     if recipient_extra:
         confirm_lines.append(f"🖥 Server ID: {recipient_extra}")
     if player_name:
@@ -1094,7 +1106,8 @@ async def receive_payment_proof(message: Message, state: FSMContext) -> None:
         method_line = f"💳 Усул: {payment_method_label(order.payment_provider)}\n"
 
     caption = (
-        f"🆕 Фармоиши #{order_id}{items_summary}\n"
+        neon_header("🧾 Пардохти нав", "admin")
+        + f"\n\nФармоиши #{order_id}{items_summary}\n"
         f"💰 Ҳамагӣ: {total:.2f} сомонӣ\n"
         f"👤 Мизоҷ: {message.from_user.full_name} (@{message.from_user.username or '—'}, id={message.from_user.id})\n"
         f"{recipient_line}"
