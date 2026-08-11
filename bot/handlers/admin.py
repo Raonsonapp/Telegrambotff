@@ -30,7 +30,7 @@ from bot.db.repo import (
 from bot.db.session import get_session
 from bot.keyboards import admin_order_keyboard
 from bot.services.fulfillment import confirm_and_deliver, mark_delivered_and_notify
-from bot.texts import format_recipient, order_status_label
+from bot.texts import format_recipient, neon_header, order_status_label
 
 router = Router(name="admin")
 
@@ -416,7 +416,8 @@ async def reject_payment(callback: CallbackQuery, bot: Bot) -> None:
     await callback.message.edit_reply_markup(reply_markup=None)
     await bot.send_message(
         order.user_id,
-        f"❌ Фармоиши #{order.id} рад карда шуд. Агар ин хато бошад, бо админ тамос гиред.",
+        f"{neon_header('❌ Фармоиш рад карда шуд', 'error')}\n\n"
+        f"Фармоиши #{order.id} рад карда шуд. Агар ин хато бошад, бо админ тамос гиред.",
     )
     await callback.answer("Рад карда шуд.")
 
