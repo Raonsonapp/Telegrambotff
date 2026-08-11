@@ -111,7 +111,7 @@ async def run_webhook(bot: Bot, dp: Dispatcher) -> None:
     """
     from aiogram.webhook.aiohttp_server import SimpleRequestHandler, setup_application
 
-    webhook_url = config.public_url.rstrip("/") + config.telegram_webhook_path
+    webhook_url = config.public_url.rstrip("/health") + config.telegram_webhook_path
     await bot.set_webhook(
         url=webhook_url,
         secret_token=config.telegram_webhook_secret or None,
