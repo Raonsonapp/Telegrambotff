@@ -87,3 +87,31 @@ CATEGORY_DISPLAY_NAMES: dict[str, str] = {
 def category_display_name(category) -> str:
     key = category.value if hasattr(category, "value") else str(category)
     return CATEGORY_DISPLAY_NAMES.get(key, key)
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# NEON / GAMING poster framing
+# ═══════════════════════════════════════════════════════════════════════
+# Plain Telegram text (even with HTML parse_mode) can't render literal
+# glow/CSS effects — this is the closest a text message gets to a "neon
+# gaming poster": a bold branded header + themed accent emoji + a divider,
+# matched to the message's MEANING the same way bot/keyboards.py matches
+# button color to meaning. Existing message CONTENT is never rewritten by
+# this — neon_header() only builds a banner to put in front of it.
+NEON_DIVIDER = "━━━━━━━━━━━━━━━"
+
+_NEON_THEMES: dict[str, str] = {
+    "brand": "💎⚡💎",  # welcome / general branding
+    "diamonds": "💎🔷✨",  # buying diamonds/UC/Gold — product screens
+    "payment": "💚💰💚",  # payment instructions / paid confirmation
+    "warning": "🟠⚠️🟠",  # caution / please double-check
+    "error": "🔴❌🔴",  # rejected / failed
+    "success": "🟢✅🟢",  # delivered / confirmed
+    "admin": "👑💜👑",  # admin-facing alerts
+    "news": "🔵📢🔵",  # announcements / broadcasts
+}
+
+
+def neon_header(title: str, theme: str = "brand") -> str:
+    accent = _NEON_THEMES.get(theme, _NEON_THEMES["brand"])
+    return f"{accent}\n<b>{title}</b>\n{NEON_DIVIDER}"
