@@ -29,7 +29,7 @@ from bot.keyboards import review_prompt_keyboard
 from bot.services.announcements import post_giveaway_announcement
 from bot.services.delivery import get_delivery_provider
 from bot.states import OrderFlow
-from bot.texts import format_recipient
+from bot.texts import format_recipient, neon_header
 
 REFERRAL_BONUS_RATE = 0.05
 
@@ -102,6 +102,23 @@ async def _resolve_group(session, order: Order) -> list[Order]:
 def _item_line(order: Order, product) -> str:
     bonus = f" (+{product.bonus_diamonds} бонус)" if product.bonus_diamonds else ""
     return f"📦 {product.diamonds}{bonus} {product.unit_label}"
+
+
+async def _send_delivered_message(bot: Bot, order: Order, delivered: list[Order], products: dict) -> None:
+    header = neon_header("🎉 Иҷро шуд!", "success")
+    if len(delivered) > 1:
+        summary = "\n".join(
+            f"{_item_line(o, products[o.id])} → {format_recipient(o.ff_player_id, o.recipient_extra)}"
+            for o in delivered
+        )
+        await bot.send_message(order.user_id, f"{header}\n\nҲама маҳсулоти фармоиши шумо ирсол шуд:\n{summary}")
+    else:
+        product = products[delivered[0].id]
+        recipient = format_recipient(delivered[0].ff_player_id, delivered[0].recipient_extra)
+        await bot.send_message(
+            order.user_id,
+            f"{header}\n\n{product.diamonds} {product.unit_label} ба аккаунти шумо ({recipient}) ирсол шуд!",
+        )
 
 
 async def confirm_and_deliver(bot: Bot, order_id: int, payment_reference: str | None = None) -> FulfillmentResult | None:
@@ -178,19 +195,7 @@ async def confirm_and_deliver(bot: Bot, order_id: int, payment_reference: str | 
                 giveaway_hit = hit
             delivered.append(fresh)
 
-    if len(delivered) > 1:
-        summary = "\n".join(
-            f"{_item_line(o, products[o.id])} → {format_recipient(o.ff_player_id, o.recipient_extra)}"
-            for o in delivered
-        )
-        await bot.send_message(order.user_id, f"🎉 Ҳама маҳсулоти фармоиши шумо ирсол шуд:\n{summary}")
-    else:
-        product = products[delivered[0].id]
-        recipient = format_recipient(delivered[0].ff_player_id, delivered[0].recipient_extra)
-        await bot.send_message(
-            order.user_id,
-            f"🎉 {product.diamonds} {product.unit_label} ба аккаунти шумо ({recipient}) ирсол шуд!",
-        )
+    await _send_delivered_message(bot, order, delivered, products)
     await prompt_for_review(bot, delivered[0])
 
     if giveaway_hit is not None:
@@ -219,19 +224,7 @@ async def mark_delivered_and_notify(bot: Bot, order_id: int) -> Order | None:
                 giveaway_hit = hit
             delivered.append(fresh)
 
-    if len(delivered) > 1:
-        summary = "\n".join(
-            f"{_item_line(o, products[o.id])} → {format_recipient(o.ff_player_id, o.recipient_extra)}"
-            for o in delivered
-        )
-        await bot.send_message(order.user_id, f"🎉 Ҳама маҳсулоти фармоиши шумо ирсол шуд:\n{summary}")
-    else:
-        product = products[delivered[0].id]
-        recipient = format_recipient(delivered[0].ff_player_id, delivered[0].recipient_extra)
-        await bot.send_message(
-            order.user_id,
-            f"🎉 {product.diamonds} {product.unit_label} ба аккаунти шумо ({recipient}) ирсол шуд!",
-        )
+    await _send_delivered_message(bot, order, delivered, products)
     await prompt_for_review(bot, delivered[0])
 
     if giveaway_hit is not None:
