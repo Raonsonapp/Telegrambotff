@@ -2,7 +2,6 @@ import asyncio
 import logging
 
 import aiohttp
-from aiohttp import web
 from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
@@ -13,6 +12,7 @@ from aiogram.types import (
     BotCommandScopeDefault,
     ErrorEvent,
 )
+from aiohttp import web
 
 from bot.config import config
 from bot.db.session import init_db
@@ -33,23 +33,26 @@ logger = logging.getLogger(__name__)
 def build_dispatcher() -> Dispatcher:
     dp = Dispatcher(storage=storage)
 
+    # Force-Join middleware
     force_join = ForceJoinMiddleware()
 
     dp.message.outer_middleware(force_join)
     dp.callback_query.outer_middleware(force_join)
 
+    # Routers
     dp.include_router(admin.router)
     dp.include_router(customer.router)
 
     @dp.errors()
     async def handle_errors(event: ErrorEvent) -> bool:
+        """Handle harmless Telegram 'message is not modified' errors."""
         if (
             isinstance(event.exception, TelegramBadRequest)
             and "message is not modified" in str(event.exception)
         ):
             callback = event.update.callback_query
 
-            if callback:
+            if callback is not None:
                 try:
                     await callback.answer()
                 except Exception:
@@ -57,17 +60,15 @@ def build_dispatcher() -> Dispatcher:
 
             return True
 
-        logger.exception(
-            "Unhandled Telegram update error",
-            exc_info=event.exception,
-        )
-
         return False
 
     return dp
 
 
-async def _configure_bot_commands(bot: Bot) -> None:
+async def configure_bot_commands(bot: Bot) -> None:
+    """Configure Telegram command menu."""
+
+    # Default commands
     await bot.set_my_commands(
         [
             BotCommand(
@@ -78,6 +79,7 @@ async def _configure_bot_commands(bot: Bot) -> None:
         scope=BotCommandScopeDefault(),
     )
 
+    # Admin commands
     admin_commands = [
         BotCommand(
             command="start",
@@ -95,26 +97,51 @@ async def _configure_bot_commands(bot: Bot) -> None:
                 admin_commands,
                 scope=BotCommandScopeChat(chat_id=admin_id),
             )
+
         except Exception as exc:
             logger.warning(
-                "Could not configure admin commands for %s: %s",
+                "Could not set admin commands for %s: %s",
                 admin_id,
                 exc,
             )
 
 
-async def _self_ping_loop(
-    health_url: str,
-    interval_seconds: int = 600,
+async def run_polling(
+    bot: Bot,
+    dp: Dispatcher,
 ) -> None:
+    """Local polling mode."""
+
+    await bot.delete_webhook(drop_pending_updates=True)
+
+    logger.info("Starting Telegram polling...")
+
+    await dp.start_polling(bot)
+
+
+async def self_ping_loop(
+    url: str,
+    interval_seconds: int,
+) -> None:
+    """
+    Ping /health every N seconds.
+
+    This keeps the Render free instance receiving HTTP traffic.
+    """
+
+    health_url = url.rstrip("/") + "/health"
+
     timeout = aiohttp.ClientTimeout(total=15)
 
     async with aiohttp.ClientSession(timeout=timeout) as session:
-        while True:
-            try:
-                await asyncio.sleep(interval_seconds)
 
+        while True:
+
+            await asyncio.sleep(interval_seconds)
+
+            try:
                 async with session.get(health_url) as response:
+
                     logger.info(
                         "KEEPALIVE: %s -> HTTP %s",
                         health_url,
@@ -122,104 +149,105 @@ async def _self_ping_loop(
                     )
 
             except asyncio.CancelledError:
-                logger.info("Keepalive task stopped")
                 raise
 
             except Exception as exc:
+
                 logger.warning(
-                    "KEEPALIVE FAILED: %s",
+                    "KEEPALIVE failed: %s",
                     exc,
                 )
-
-
-async def run_polling(
-    bot: Bot,
-    dp: Dispatcher,
-) -> None:
-    logger.info("Starting polling mode")
-
-    await bot.delete_webhook(
-        drop_pending_updates=True,
-    )
-
-    await dp.start_polling(bot)
 
 
 async def run_webhook(
     bot: Bot,
     dp: Dispatcher,
 ) -> None:
+    """
+    Production webhook mode for Render.
+
+    Important:
+    The aiohttp server is started FIRST.
+    Only after the server is listening do we register
+    the Telegram webhook.
+    """
+
     from aiogram.webhook.aiohttp_server import (
         SimpleRequestHandler,
         setup_application,
     )
 
+    # ---------------------------------------------------------
+    # URLs
+    # ---------------------------------------------------------
+
     public_url = config.public_url.rstrip("/")
 
-    webhook_path = "/" + config.telegram_webhook_path.lstrip("/")
+    webhook_path = config.telegram_webhook_path or "/tg-webhook"
+
+    if not webhook_path.startswith("/"):
+        webhook_path = "/" + webhook_path
 
     webhook_url = public_url + webhook_path
 
-    health_url = public_url + "/health"
+    logger.info("PUBLIC_URL: %s", public_url)
+    logger.info("WEBHOOK_PATH: %s", webhook_path)
+    logger.info("WEBHOOK_URL: %s", webhook_url)
 
-    logger.info("==========================================")
-    logger.info("PUBLIC URL: %s", public_url)
-    logger.info("WEBHOOK PATH: %s", webhook_path)
-    logger.info("WEBHOOK URL: %s", webhook_url)
-    logger.info("HEALTH URL: %s", health_url)
-    logger.info("PORT: %s", config.port)
-    logger.info("==========================================")
-
-    await bot.set_webhook(
-        url=webhook_url,
-        secret_token=config.telegram_webhook_secret or None,
-        drop_pending_updates=True,
-    )
-
-    webhook_info = await bot.get_webhook_info()
-
-    logger.info(
-        "TELEGRAM WEBHOOK INFO: url=%s pending=%s "
-        "last_error_date=%s last_error=%s",
-        webhook_info.url,
-        webhook_info.pending_update_count,
-        webhook_info.last_error_date,
-        webhook_info.last_error_message,
-    )
+    # ---------------------------------------------------------
+    # AIOHTTP APP
+    # ---------------------------------------------------------
 
     app = web.Application()
 
-    async def root(_request: web.Request) -> web.Response:
-        return web.Response(
-            text="ALMAZSHOP BOT ONLINE",
-            status=200,
-        )
-
+    # Health endpoint
     async def health(_request: web.Request) -> web.Response:
         return web.Response(
             text="OK",
             status=200,
         )
 
-    app.router.add_get("/", root)
-    app.router.add_get("/health", health)
+    app.router.add_get(
+        "/health",
+        health,
+    )
 
-    register_sms_webhook(app, bot)
+    # Optional root endpoint
+    async def root(_request: web.Request) -> web.Response:
+        return web.Response(
+            text="Telegram bot is running.",
+            status=200,
+        )
 
-    webhook_handler = SimpleRequestHandler(
+    app.router.add_get(
+        "/",
+        root,
+    )
+
+    # ---------------------------------------------------------
+    # SMS WEBHOOK
+    # ---------------------------------------------------------
+
+    register_sms_webhook(
+        app,
+        bot,
+    )
+
+    # ---------------------------------------------------------
+    # TELEGRAM WEBHOOK HANDLER
+    # ---------------------------------------------------------
+
+    secret_token = config.telegram_webhook_secret or None
+
+    request_handler = SimpleRequestHandler(
         dispatcher=dp,
         bot=bot,
-        secret_token=config.telegram_webhook_secret or None,
+        secret_token=secret_token,
     )
 
-    webhook_handler.register(
+    request_handler.register(
         app,
         path=webhook_path,
-    )
-
-    logger.info(
-        "REGISTERED TELEGRAM WEBHOOK ROUTE: POST %s",
-        webhook_path,
     )
 
     setup_application(
@@ -228,75 +256,135 @@ async def run_webhook(
         bot=bot,
     )
 
+    # ---------------------------------------------------------
+    # START HTTP SERVER FIRST
+    # ---------------------------------------------------------
+
     runner = web.AppRunner(app)
 
     await runner.setup()
 
     site = web.TCPSite(
         runner,
-        host="0.0.0.0",
+        host=config.webhook_server_host,
         port=config.port,
     )
 
     await site.start()
 
-    logger.info("==========================================")
     logger.info(
-        "SERVER STARTED: 0.0.0.0:%s",
+        "HTTP SERVER STARTED: %s:%s",
+        config.webhook_server_host,
         config.port,
     )
+
     logger.info(
-        "WEBHOOK LISTENING: POST %s",
+        "Telegram webhook route: %s",
         webhook_path,
     )
-    logger.info(
-        "TELEGRAM WEBHOOK: %s",
-        webhook_url,
-    )
-    logger.info(
-        "HEALTH CHECK: %s",
-        health_url,
-    )
-    logger.info("==========================================")
 
-    # 10-minute keepalive.
-    # 600 seconds = 10 minutes.
-    keepalive_seconds = 600
+    # ---------------------------------------------------------
+    # NOW REGISTER TELEGRAM WEBHOOK
+    # ---------------------------------------------------------
 
-    asyncio.create_task(
-        _self_ping_loop(
-            health_url,
-            keepalive_seconds,
+    try:
+
+        await bot.delete_webhook(
+            drop_pending_updates=False,
         )
-    )
 
-    logger.info(
-        "KEEPALIVE ENABLED: every 600 seconds (10 minutes)",
-    )
+        await bot.set_webhook(
+            url=webhook_url,
+            secret_token=secret_token,
+            drop_pending_updates=True,
+        )
+
+        webhook_info = await bot.get_webhook_info()
+
+        logger.info(
+            "TELEGRAM WEBHOOK REGISTERED: %s",
+            webhook_info.url,
+        )
+
+        logger.info(
+            "WEBHOOK PENDING UPDATES: %s",
+            webhook_info.pending_update_count,
+        )
+
+        if webhook_info.last_error_message:
+            logger.warning(
+                "TELEGRAM LAST WEBHOOK ERROR: %s",
+                webhook_info.last_error_message,
+            )
+
+    except Exception as exc:
+
+        logger.exception(
+            "FAILED TO REGISTER TELEGRAM WEBHOOK: %s",
+            exc,
+        )
+
+        raise
+
+    # ---------------------------------------------------------
+    # KEEPALIVE
+    # ---------------------------------------------------------
+
+    if config.keepalive_ping_seconds > 0:
+
+        asyncio.create_task(
+            self_ping_loop(
+                public_url,
+                config.keepalive_ping_seconds,
+            )
+        )
+
+        logger.info(
+            "KEEPALIVE ENABLED: every %s seconds",
+            config.keepalive_ping_seconds,
+        )
+
+    else:
+
+        logger.info(
+            "KEEPALIVE DISABLED",
+        )
+
+    # ---------------------------------------------------------
+    # KEEP PROCESS ALIVE
+    # ---------------------------------------------------------
 
     await asyncio.Event().wait()
 
 
-async def _init_db_with_retry(
+async def init_db_with_retry(
     max_attempts: int = 5,
 ) -> None:
+    """Initialize database with retry."""
+
     delay = 2
 
-    for attempt in range(1, max_attempts + 1):
+    for attempt in range(
+        1,
+        max_attempts + 1,
+    ):
+
         try:
+
             await init_db()
 
             logger.info(
-                "DATABASE INITIALIZED SUCCESSFULLY",
+                "Database initialized successfully.",
             )
 
             return
 
         except Exception as exc:
+
             if attempt == max_attempts:
+
                 logger.exception(
-                    "Database initialization failed "
-                    "after %s attempts",
+                    "Database initialization failed after %s attempts.",
                     max_attempts,
                 )
 
@@ -305,7 +393,7 @@ async def _init_db_with_retry(
             logger.warning(
                 "Database initialization failed "
                 "(attempt %s/%s): %s. "
-                "Retrying in %ss",
+                "Retrying in %s seconds...",
                 attempt,
                 max_attempts,
                 exc,
@@ -314,17 +402,33 @@ async def _init_db_with_retry(
 
             await asyncio.sleep(delay)
 
-            delay = min(delay * 2, 30)
+            delay = min(
+                delay * 2,
+                30,
+            )
 
 
 async def main() -> None:
+
+    # ---------------------------------------------------------
+    # BOT TOKEN
+    # ---------------------------------------------------------
+
     if not config.bot_token:
+
         raise RuntimeError(
-            "BOT_TOKEN is not set. "
-            "Copy .env.example to .env and fill it in."
+            "BOT_TOKEN is not set."
         )
 
-    await _init_db_with_retry()
+    # ---------------------------------------------------------
+    # DATABASE
+    # ---------------------------------------------------------
+
+    await init_db_with_retry()
+
+    # ---------------------------------------------------------
+    # BOT
+    # ---------------------------------------------------------
 
     bot = Bot(
         token=config.bot_token,
@@ -333,13 +437,26 @@ async def main() -> None:
         ),
     )
 
+    # ---------------------------------------------------------
+    # DISPATCHER
+    # ---------------------------------------------------------
+
     dp = build_dispatcher()
 
-    await _configure_bot_commands(bot)
+    # ---------------------------------------------------------
+    # COMMANDS
+    # ---------------------------------------------------------
 
-    if config.public_url:
+    await configure_bot_commands(bot)
+
+    # ---------------------------------------------------------
+    # MODE
+    # ---------------------------------------------------------
+
+    if config.public_url.strip():
+
         logger.info(
-            "PUBLIC_URL detected -> starting WEBHOOK mode",
+            "PUBLIC_URL detected. Starting WEBHOOK mode."
         )
 
         await run_webhook(
@@ -348,8 +465,9 @@ async def main() -> None:
         )
 
     else:
+
         logger.info(
-            "PUBLIC_URL is empty -> starting POLLING mode",
+            "PUBLIC_URL is empty. Starting POLLING mode."
         )
 
         await run_polling(
