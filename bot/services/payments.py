@@ -132,6 +132,7 @@ class ManualBankTransferProvider(PaymentProvider):
 
     async def create_invoice(self, order_id: int, amount_somoni: float) -> InvoiceResult:
         from bot.db.session import get_session
+        from bot.texts import neon_header
 
         card_number = self._card_number()
         pay_url = self._pay_link(order_id, amount_somoni)
@@ -141,8 +142,11 @@ class ManualBankTransferProvider(PaymentProvider):
         else:
             card_line = f"{self.method_label}: {card_number}\n{self._extra_note()}"
 
+        header = neon_header("💳 Пардохт", "payment")
+
         if pay_url:
             instructions = (
+                f"{header}\n\n"
                 f"{card_line}"
                 f"💰 Маблағи дақиқ: {amount_somoni:.2f} сомонӣ (на кам, на зиёд)\n\n"
                 f"Тугмаи «💳 Пардохт»-ро пахш кунед, маблағро тасдиқ кунед, "
@@ -150,6 +154,7 @@ class ManualBankTransferProvider(PaymentProvider):
             )
         else:
             instructions = (
+                f"{header}\n\n"
                 f"{card_line}"
                 f"Лутфан {amount_somoni:.2f} сомонӣ гузаронед ва расиди пардохтро "
                 f"(скриншот) ба ин ҷо фиристед. Пас аз тасдиқи админ фармоишатон иҷро мешавад."
