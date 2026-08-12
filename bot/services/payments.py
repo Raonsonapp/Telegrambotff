@@ -3,19 +3,18 @@
 Only the manual family is wired to a real, working flow: the customer
 pays via a real tap-to-pay link (💳 ДС, 💳 Алиф — both pre-filled with the
 order's exact FINAL PRICE, never a hardcoded amount) or a manual transfer
-(💳 Эсхата, 💳 Амонатбонк), then sends proof; an admin confirms it with
-one tap. That is enough to launch and take real orders immediately.
+(💳 Амонатбонк), then sends proof; an admin confirms it with one tap.
+That is enough to launch and take real orders immediately.
 `ManualBankTransferProvider` (💳 ДС — Dushanbe City Bank card + pay.dc.tj
-link), `AlifManualProvider` (💳 Алиф — Alif Mobi in-app deep link),
-`EskhataManualProvider` (💳 Эсхата) and `AmonatbonkManualProvider`
-(💳 Амонатбонк) are all the exact same admin-confirmed proof flow
-underneath, just pointed at a different receiving number/link/label — the
-customer picks one at checkout when PAYMENT_PROVIDER=manual (see
-bot/handlers/customer.py:confirm_order). Alif, Eskhata and Amonatbonk all
-transfer into the *same* underlying account, via the customer's own
-Alif/Eskhata/Amonatbonk mobile-banking app — one shared number
-(config.mobile_transfer_number) covers all three; only ДС uses a
-different number (a card, config.receiving_card_number).
+link), `AlifManualProvider` (💳 Алиф — Alif Mobi in-app deep link) and
+`AmonatbonkManualProvider` (💳 Амонатбонк) are all the exact same
+admin-confirmed proof flow underneath, just pointed at a different
+receiving number/link/label — the customer picks one at checkout when
+PAYMENT_PROVIDER=manual (see bot/handlers/customer.py:confirm_order).
+Alif and Amonatbonk both transfer into the *same* underlying account, via
+the customer's own Alif/Amonatbonk mobile-banking app — one shared number
+(config.mobile_transfer_number) covers both; only ДС uses a different
+number (a card, config.receiving_card_number).
 
 Every amount that ends up in a pay link or shown to the customer
 (amount_somoni here) is always the selected product's real price, copied
@@ -125,9 +124,9 @@ class ManualBankTransferProvider(PaymentProvider):
 
     def _extra_note(self) -> str:
         """Optional line shown right under the card/number — used by
-        Eskhata/Amonatbonk to spell out that this is an interbank transfer
-        (from a *different* bank's own app) into the same underlying
-        account, not a special new account."""
+        Amonatbonk to spell out that this is an interbank transfer (from a
+        *different* bank's own app) into the same underlying account, not
+        a special new account."""
         return ""
 
     async def create_invoice(self, order_id: int, amount_somoni: float) -> InvoiceResult:
@@ -200,34 +199,12 @@ class AlifManualProvider(ManualBankTransferProvider):
         return await get_alif_card_photo_file_id(session)
 
 
-class EskhataManualProvider(ManualBankTransferProvider):
-    """The "💳 Эсхата" button — customer sends from their own Eskhata Bank
-    mobile-banking app into the shop's account (config.mobile_transfer_number
-    — the same number Alif/Amonatbonk use). Same admin-confirmed proof
-    flow as every other manual method above; only the label, number
-    source and card photo differ."""
-
-    method_key = "manual_eskhata"
-    method_label = "💳 Эсхата"
-
-    def _card_number(self) -> str:
-        return config.mobile_transfer_number or config.receiving_card_number
-
-    def _pay_link(self, order_id: int, amount_somoni: float) -> str | None:
-        return None
-
-    def _extra_note(self) -> str:
-        return "ℹ️ Аз барномаи мобилии Эсхата (Eskhata) ба ин рақам гузаронед.\n"
-
-    async def _get_card_photo_file_id(self, session) -> str | None:
-        from bot.db.repo import get_eskhata_card_photo_file_id
-
-        return await get_eskhata_card_photo_file_id(session)
-
-
 class AmonatbonkManualProvider(ManualBankTransferProvider):
-    """The "💳 Амонатбонк" button — same idea as EskhataManualProvider,
-    just from an Амонатбонк (Amonatbank) mobile-banking app instead."""
+    """The "💳 Амонатбонк" button — customer sends from their own
+    Amonatbonk mobile-banking app into the shop's account
+    (config.mobile_transfer_number — the same number Alif uses). Same
+    admin-confirmed proof flow as every other manual method above; only
+    the label, number source and card photo differ."""
 
     method_key = "manual_amonatbonk"
     method_label = "💳 Амонатбонк"
