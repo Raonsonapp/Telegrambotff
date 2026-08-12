@@ -128,9 +128,13 @@ class Config:
 
     # Render's free tier spins the service down after ~15 minutes with no
     # incoming HTTP traffic. Every KEEPALIVE_PING_SECONDS, the bot pings its
-    # own PUBLIC_URL to look "active" and avoid that — set to "0" to disable
-    # (e.g. on a paid plan that doesn't sleep).
-    keepalive_ping_seconds: int = int(os.getenv("KEEPALIVE_PING_SECONDS", "600"))
+    # own PUBLIC_URL/health to look "active" and avoid that. 300s (5 min)
+    # gives a comfortable safety margin under the 15-minute cutoff even if
+    # a ping is briefly delayed or dropped — this DOES NOT WORK AT ALL if
+    # PUBLIC_URL is left empty (see main.py:keepalive_loop), so that must
+    # be set on Render for this to have any effect. Set to "0" to disable
+    # entirely (e.g. on a paid plan that doesn't sleep).
+    keepalive_ping_seconds: int = int(os.getenv("KEEPALIVE_PING_SECONDS", "300"))
 
     delivery_provider: str = os.getenv("DELIVERY_PROVIDER", "manual")
     supplier_api_base_url: str = os.getenv("SUPPLIER_API_BASE_URL", "")
