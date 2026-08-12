@@ -20,7 +20,6 @@ from bot.db.repo import (
     set_alif_card_photo_file_id,
     set_amonatbonk_card_photo_file_id,
     set_card_photo_file_id,
-    set_eskhata_card_photo_file_id,
     set_order_status,
     set_product_bonus,
     set_product_fzr_mapping,
@@ -28,7 +27,7 @@ from bot.db.repo import (
     stop_giveaway,
 )
 from bot.db.session import get_session
-from bot.keyboards import admin_order_keyboard
+from bot.keyboards import admin_order_keyboard, admin_panel_back_keyboard, admin_panel_keyboard
 from bot.services.fulfillment import confirm_and_deliver, mark_delivered_and_notify
 from bot.texts import format_recipient, neon_header, order_status_label
 
@@ -54,7 +53,10 @@ async def admin_panel(message: Message) -> None:
         return
 
     await message.answer(
-        "🛠 <b>Панели админ</b>\n\n"
+        neon_header("👑 Панели админ", "admin") + "\n\nТугмаро занед ё фармонро дастӣ нависед 👇",
+        reply_markup=admin_panel_keyboard(),
+    )
+    await message.answer(
         "📦 <b>Маҳсулот</b>\n"
         "/products — рӯйхати ҳама\n"
         "/addproduct /addpubg /addstandoff /addffbr /addffid /addcombo /addstars "
@@ -69,11 +71,10 @@ async def admin_panel(message: Message) -> None:
         "/giveaway_start &lt;шумораи харид&gt; &lt;ғолибон&gt; &lt;ҷоиза&gt;\n"
         "/giveaway_status /giveaway_stop\n\n"
         "🖼 <b>Расми корт</b>\n"
-        "/setcardphoto (ДС) /setalifcardphoto /seteskhatacardphoto /setamonatbonkcardphoto\n\n"
+        "/setcardphoto (ДС) /setalifcardphoto /setamonatbonkcardphoto\n\n"
         "🔗 <b>FazerCards (автоматики донат)</b>\n"
         "/fzr_categories /fzr_offers &lt;category_id&gt; /fzr_validate_id\n"
-        "/mapproduct &lt;product_id&gt; &lt;category_id&gt; &lt;offer_id&gt;\n\n"
-        "Ҳар фармон бе аргумент низ пуштибониро нишон медиҳад."
+        "/mapproduct &lt;product_id&gt; &lt;category_id&gt; &lt;offer_id&gt;"
     )
 
 
@@ -178,21 +179,15 @@ async def add_combo(message: Message) -> None:
     await _add_product(message, ProductCategory.COMBO, "/addcombo")
 
 
-@router.message(Command("products"))
-async def list_products(message: Message) -> None:
-    if not is_admin(message.from_user.id):
-        await _reject_non_admin(message)
-        return
-
+async def _products_text() -> str:
     async with get_session() as session:
         products = await list_active_products(session)
 
     if not products:
-        await message.answer(
+        return (
             "Ягон маҳсулот нест. Бо /addproduct, /addstars, /addpubg, /addstandoff, "
             "/addffbr, /addffid ё /addcombo илова кунед."
         )
-        return
 
     lines = [
         f"#{p.id} [{p.category.value}] {p.name}: {p.diamonds}"
@@ -200,7 +195,27 @@ async def list_products(message: Message) -> None:
         + f" {p.unit_label} = {p.price_somoni:.2f}с (харид {p.cost_somoni:.2f}с, фоида {p.margin_somoni:.2f}с)"
         for p in products
     ]
-    await message.answer("\n".join(lines)[:4000])
+    return "\n".join(lines)[:4000]
+
+
+@router.message(Command("products"))
+async def list_products(message: Message) -> None:
+    if not is_admin(message.from_user.id):
+        await _reject_non_admin(message)
+        return
+    await message.answer(await _products_text())
+
+
+@router.callback_query(F.data == "adminpanel:products")
+async def admin_panel_products(callback: CallbackQuery) -> None:
+    if not is_admin(callback.from_user.id):
+        await callback.answer("Танҳо админ метавонад ин корро кунад.", show_alert=True)
+        return
+    await callback.message.edit_text(
+        neon_header("📦 Маҳсулот", "admin") + "\n\n" + await _products_text(),
+        reply_markup=admin_panel_back_keyboard(),
+    )
+    await callback.answer()
 
 
 @router.message(Command("delproduct"))
@@ -281,28 +296,6 @@ async def set_alif_card_photo(message: Message) -> None:
     await message.answer("✅ Расми корти Алиф сабт шуд — акнун дар экрани пардохти «💳 Алиф» нишон дода мешавад.")
 
 
-@router.message(Command("seteskhatacardphoto"))
-async def set_eskhata_card_photo(message: Message) -> None:
-    if not is_admin(message.from_user.id):
-        await _reject_non_admin(message)
-        return
-
-    photo_message = message if message.photo else message.reply_to_message
-    if photo_message is None or not photo_message.photo:
-        await message.answer(
-            "Расмро (масалан скриншоти интиқол ба Эсхата) ҳамчун акс фиристед, бо матни "
-            "«/seteskhatacardphoto» дар зери он, ё ин фармонро ба ҷавоби (reply) як расми "
-            "қаблан фиристодашуда занед."
-        )
-        return
-
-    file_id = photo_message.photo[-1].file_id
-    async with get_session() as session:
-        await set_eskhata_card_photo_file_id(session, file_id)
-
-    await message.answer("✅ Расм барои усули «💳 Эсхата» сабт шуд.")
-
-
 @router.message(Command("setamonatbonkcardphoto"))
 async def set_amonatbonk_card_photo(message: Message) -> None:
     if not is_admin(message.from_user.id):
@@ -324,12 +317,7 @@ async def set_amonatbonk_card_photo(message: Message) -> None:
     await message.answer("✅ Расм барои усули «💳 Амонатбонк» сабт шуд.")
 
 
-@router.message(Command("pending"))
-async def pending_orders(message: Message) -> None:
-    if not is_admin(message.from_user.id):
-        await _reject_non_admin(message)
-        return
-
+async def _pending_text() -> str:
     async with get_session() as session:
         awaiting = await list_orders_by_status(session, OrderStatus.AWAITING_PAYMENT)
         paid = await list_orders_by_status(session, OrderStatus.PAID)
@@ -338,29 +326,42 @@ async def pending_orders(message: Message) -> None:
         return f"#{o.id} — {o.amount_somoni:.2f}с — recipient {format_recipient(o.ff_player_id, o.recipient_extra)}"
 
     if not awaiting and not paid:
-        await message.answer("Фармоиши боқимонда нест.")
-        return
+        return "Фармоиши боқимонда нест."
 
     lines = ["⏳ Дар интизори пардохт:"]
     lines += [_line(o) for o in awaiting] or ["(нест)"]
     lines.append("\n💰 Пардохт шуда, дар интизори ирсол:")
     lines += [_line(o) for o in paid] or ["(нест)"]
-    await message.answer("\n".join(lines))
+    return "\n".join(lines)
 
 
-@router.message(Command("proofs"))
-async def proofs_submitted(message: Message) -> None:
+@router.message(Command("pending"))
+async def pending_orders(message: Message) -> None:
     if not is_admin(message.from_user.id):
         await _reject_non_admin(message)
         return
+    await message.answer(await _pending_text())
 
+
+@router.callback_query(F.data == "adminpanel:pending")
+async def admin_panel_pending(callback: CallbackQuery) -> None:
+    if not is_admin(callback.from_user.id):
+        await callback.answer("Танҳо админ метавонад ин корро кунад.", show_alert=True)
+        return
+    await callback.message.edit_text(
+        neon_header("⏳ Фармоишҳо", "admin") + "\n\n" + await _pending_text(),
+        reply_markup=admin_panel_back_keyboard(),
+    )
+    await callback.answer()
+
+
+async def _proofs_text() -> str:
     async with get_session() as session:
         total = await count_proofs_submitted(session)
         rows = await list_proofs_submitted(session, limit=30)
 
     if not rows:
-        await message.answer("То ҳол ягон мизоҷ чек (расиди пардохт) нафиристодааст.")
-        return
+        return "То ҳол ягон мизоҷ чек (расиди пардохт) нафиристодааст."
 
     lines = [f"🧾 Ҳамагӣ {total} чек фиристода шудааст. Охирин {len(rows)}-то:\n"]
     for order, user in rows:
@@ -375,7 +376,27 @@ async def proofs_submitted(message: Message) -> None:
             f"#{order.id} — {name} (id={user.id}) — {order.amount_somoni:.2f}с — "
             f"{order_status_label(order.status)} — {when}"
         )
-    await message.answer("\n".join(lines)[:4000])
+    return "\n".join(lines)[:4000]
+
+
+@router.message(Command("proofs"))
+async def proofs_submitted(message: Message) -> None:
+    if not is_admin(message.from_user.id):
+        await _reject_non_admin(message)
+        return
+    await message.answer(await _proofs_text())
+
+
+@router.callback_query(F.data == "adminpanel:proofs")
+async def admin_panel_proofs(callback: CallbackQuery) -> None:
+    if not is_admin(callback.from_user.id):
+        await callback.answer("Танҳо админ метавонад ин корро кунад.", show_alert=True)
+        return
+    await callback.message.edit_text(
+        neon_header("🧾 Чекҳо", "admin") + "\n\n" + await _proofs_text(),
+        reply_markup=admin_panel_back_keyboard(),
+    )
+    await callback.answer()
 
 
 @router.callback_query(F.data.startswith("admin:paid:"))
@@ -489,27 +510,53 @@ async def giveaway_stop_cmd(message: Message) -> None:
     await message.answer("✅ Туҳфа қатъ карда шуд (бе интихоби ғолиб).")
 
 
-@router.message(Command("giveaway_status"))
-async def giveaway_status(message: Message) -> None:
-    if not is_admin(message.from_user.id):
-        await _reject_non_admin(message)
-        return
-
+async def _giveaway_status_text() -> str:
     async with get_session() as session:
         giveaway = await get_active_giveaway(session)
         total_winners = await count_total_giveaway_winners(session)
 
     if giveaway is None:
-        await message.answer(f"Ягон туҳфаи фаъол нест.\n🎉 Ҳамагӣ {total_winners} нафар то ҳол бурдаанд.")
-        return
+        return f"Ягон туҳфаи фаъол нест.\n🎉 Ҳамагӣ {total_winners} нафар то ҳол бурдаанд."
 
     pct = int(giveaway.current_purchases / giveaway.required_purchases * 100) if giveaway.required_purchases else 0
-    await message.answer(
+    return (
         f"🎁 {giveaway.prize_description}\n"
         f"📊 {giveaway.current_purchases}/{giveaway.required_purchases} ({pct}%)\n"
         f"👥 Ғолибон: {giveaway.winners_count}\n"
         f"🎉 Ҳамагӣ бурдаанд (умумӣ): {total_winners}"
     )
+
+
+@router.message(Command("giveaway_status"))
+async def giveaway_status(message: Message) -> None:
+    if not is_admin(message.from_user.id):
+        await _reject_non_admin(message)
+        return
+    await message.answer(await _giveaway_status_text())
+
+
+@router.callback_query(F.data == "adminpanel:giveaway")
+async def admin_panel_giveaway(callback: CallbackQuery) -> None:
+    if not is_admin(callback.from_user.id):
+        await callback.answer("Танҳо админ метавонад ин корро кунад.", show_alert=True)
+        return
+    await callback.message.edit_text(
+        neon_header("🎁 Туҳфа", "admin") + "\n\n" + await _giveaway_status_text(),
+        reply_markup=admin_panel_back_keyboard(),
+    )
+    await callback.answer()
+
+
+@router.callback_query(F.data == "adminpanel:home")
+async def admin_panel_home(callback: CallbackQuery) -> None:
+    if not is_admin(callback.from_user.id):
+        await callback.answer("Танҳо админ метавонад ин корро кунад.", show_alert=True)
+        return
+    await callback.message.edit_text(
+        neon_header("👑 Панели админ", "admin") + "\n\nТугмаро занед ё фармонро дастӣ нависед 👇",
+        reply_markup=admin_panel_keyboard(),
+    )
+    await callback.answer()
 
 
 @router.message(Command("fzr_categories"))
