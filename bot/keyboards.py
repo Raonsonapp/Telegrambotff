@@ -13,51 +13,51 @@ from bot.db.models import Order, Product, ProductCategory
 # ═══════════════════════════════════════════════════════════════════════
 # Telegram Bot API 9.4 (Feb 9, 2026) added a `style` field to
 # KeyboardButton/InlineKeyboardButton — but it supports exactly THREE
-# accent colors, not an arbitrary palette: 'success' (green), 'danger'
-# (red), 'primary' (blue). There is no yellow/gold, purple, or ORANGE
-# option at the platform level (orange specifically was asked for on the
-# back/menu button — genuinely not offered by Telegram, not a bug here);
-# omitting `style` renders the app's normal default (white on reply
-# keyboards, transparent on inline keyboards) — used below as a 4th,
-# visually-distinct-from-blue option for "go back" specifically.
-# Telegram also has NO button animation, glow/particle effect, or custom
-# sound capability at all — buttons are static text+color, full stop; no
-# bot on any platform's Bot API can add that, this isn't a gap specific
-# to this project.
+# accent colors total, not an arbitrary palette: 'success' (green),
+# 'danger' (red), 'primary' (blue). There is no yellow/gold, purple, or
+# orange at the platform level, and Telegram has ZERO support for button
+# press sounds, glow/particle effects, or animation of any kind — buttons
+# are static text + one of these 3 colors, full stop, on every bot on the
+# platform, not something specific to this project.
+#
+# Every button below gets one of the 3 real colors — NEVER the
+# uncolored/default style — so nothing renders as a flat, colorless
+# button. Where a button has a specific, strong meaning (confirm, reject,
+# pay-now), that meaning always wins and always gets the same color
+# everywhere in the bot:
+#
+#   STYLE_GO      🟢 green  — confirm / accept / pay / proceed / buy /
+#                             "yes" / mark delivered
+#   STYLE_STOP    🔴 red    — reject / cancel / decline / "no"
+#   STYLE_NAV     🔵 blue   — navigation (menu/back/categories/profile)
+#
+# For a row of PEER buttons with no individually-distinct meaning (a list
+# of game categories, a list of product packs — every row means exactly
+# "select this"), _peer_style() below rotates through all 3 colors so the
+# list has real visual variety instead of one flat color, while a button
+# with a specific meaning elsewhere (✅/❌/💳 Пардохт/...) always keeps its
+# fixed, consistent color regardless of position.
 #
 # Requires aiogram>=3.30.0 (see requirements.txt) and a reasonably recent
 # Telegram client to actually render — older clients simply ignore the
 # field and show the normal default button, so this never breaks
 # anything, it just won't show a color there yet.
-#
-# Every button is assigned a color by MEANING, the same meaning always
-# gets the same color everywhere in the bot:
-#
-#   STYLE_GO      🟢 green  — confirm / accept / pay / proceed / buy /
-#                             "yes" / mark delivered
-#   STYLE_STOP    🔴 red    — reject / cancel / decline / "no"
-#   STYLE_NAV     🔵 blue   — navigation FORWARD into something (open a
-#                             category, view a list, choose a pay method)
-#   STYLE_BACK   ⚪ default — navigating BACK/OUT (🔙 Ба меню and similar) —
-#                             visually distinct from the blue "go forward"
-#                             buttons; closest available approximation to
-#                             the requested orange, which Telegram doesn't
-#                             offer.
-#   STYLE_NEUTRAL (none)   — everything else: info/help/FAQ/skip, and
-#                             alternated with STYLE_NAV in same-meaning
-#                             PEER lists (a row of game categories, a row
-#                             of product packs, ...) purely so a long list
-#                             of equally-important choices doesn't render
-#                             as one flat wall of blue — still meaning-
-#                             based (every item in that list has the exact
-#                             same "select this" meaning), just alternating
-#                             which of the two available neutral-ish colors
-#                             represents it.
 STYLE_GO = "success"
 STYLE_STOP = "danger"
 STYLE_NAV = "primary"
-STYLE_NEUTRAL = None
-STYLE_BACK = STYLE_NEUTRAL
+# "Back/exit" buttons (🔙 Ба меню, ...) were asked to be orange —
+# Telegram doesn't offer that color, so these use blue (navigation) like
+# every other menu-movement button; still always colored, never blank.
+STYLE_BACK = STYLE_NAV
+
+_ROTATION = (STYLE_NAV, STYLE_GO, STYLE_STOP)
+
+
+def _peer_style(index: int) -> str:
+    """3-way rotation through every real color for a list of same-meaning
+    peer choices, so the list has visual rhythm instead of being one flat
+    block of one color — see DESIGN SYSTEM above. Never returns None."""
+    return _ROTATION[index % len(_ROTATION)]
 
 
 def _ibtn(
@@ -65,11 +65,13 @@ def _ibtn(
     *,
     callback_data: str | None = None,
     url: str | None = None,
-    style: str | None = STYLE_NEUTRAL,
+    style: str = STYLE_NAV,
 ) -> InlineKeyboardButton:
     """Single place every inline button is built — keeps `style=` from
-    being hand-typed (and potentially getting inconsistent) at every call
-    site; see the DESIGN SYSTEM block above for what each style means."""
+    being hand-typed (and potentially getting inconsistent, or forgotten
+    and left blank) at every call site; see the DESIGN SYSTEM block above
+    for what each style means. Default is STYLE_NAV, not blank/None, so a
+    button that forgets to pass style= still renders colored."""
     kwargs: dict = {"text": text, "style": style}
     if callback_data is not None:
         kwargs["callback_data"] = callback_data
@@ -78,16 +80,9 @@ def _ibtn(
     return InlineKeyboardButton(**kwargs)
 
 
-def _kbtn(text: str, *, style: str | None = STYLE_NEUTRAL) -> KeyboardButton:
+def _kbtn(text: str, *, style: str = STYLE_NAV) -> KeyboardButton:
     """Same idea as _ibtn but for the persistent reply keyboard."""
     return KeyboardButton(text=text, style=style)
-
-
-def _peer_style(index: int) -> str | None:
-    """Alternating NAV/NEUTRAL for a list of same-meaning peer choices
-    (every row means "select this"), so the list has visual rhythm
-    instead of being one flat block of blue — see STYLE_NEUTRAL above."""
-    return STYLE_NAV if index % 2 == 0 else STYLE_NEUTRAL
 
 
 # Categories that support "🛒 Якчанд бастаро якҷоя харидан" (buy several
@@ -128,11 +123,11 @@ def force_join_keyboard() -> InlineKeyboardMarkup:
 def main_reply_keyboard() -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup(
         keyboard=[
-            [_kbtn("🎮 Бозиҳо", style=STYLE_NAV), _kbtn("✈️ Telegram", style=STYLE_NEUTRAL)],
+            [_kbtn("🎮 Бозиҳо", style=STYLE_NAV), _kbtn("✈️ Telegram", style=STYLE_GO)],
             [_kbtn("👤 Профил", style=STYLE_NAV), _kbtn("🤝 Реферал", style=STYLE_GO)],
-            [_kbtn("⭐ Отзив", style=STYLE_NEUTRAL), _kbtn("🆘 Дастгирӣ", style=STYLE_STOP)],
-            [_kbtn("❓ Саволҳои маъмул", style=STYLE_NEUTRAL), _kbtn("ℹ️ Маълумот", style=STYLE_NAV)],
-            [_kbtn("🎁 Туҳфа", style=STYLE_GO)],
+            [_kbtn("⭐ Отзив", style=STYLE_NAV), _kbtn("🆘 Дастгирӣ", style=STYLE_STOP)],
+            [_kbtn("❓ Саволҳои маъмул", style=STYLE_GO), _kbtn("ℹ️ Маълумот", style=STYLE_NAV)],
+            [_kbtn("🎁 Туҳфа", style=STYLE_STOP)],
         ],
         resize_keyboard=True,
         is_persistent=True,
@@ -292,7 +287,7 @@ def payment_method_keyboard() -> InlineKeyboardMarkup:
 
 def review_prompt_keyboard(order_id: int) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
-        inline_keyboard=[[_ibtn("⏭ Гузарондан", callback_data=f"review:skip:{order_id}")]]
+        inline_keyboard=[[_ibtn("⏭ Гузарондан", callback_data=f"review:skip:{order_id}", style=STYLE_NAV)]]
     )
 
 
