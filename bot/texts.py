@@ -48,7 +48,6 @@ def order_status_label(status: OrderStatus) -> str:
 PAYMENT_METHOD_LABELS: dict[str, str] = {
     "manual": "💳 ДС",
     "manual_alif": "💳 Алиф",
-    "manual_eskhata": "💳 Эсхата",
     "manual_amonatbonk": "💳 Амонатбонк",
     "alif": "Alif Pay (шлюзи расмӣ)",
     "dc": "Dushanbe City Bank (шлюзи расмӣ)",
