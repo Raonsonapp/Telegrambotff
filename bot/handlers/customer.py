@@ -66,7 +66,7 @@ from bot.texts import (
 router = Router(name="customer")
 
 WELCOME_TEXT = (
-    neon_header("💎 ALMAZSHOP", "brand")
+    neon_header("💎 ALMAZZSHOP", "brand")
     + "\n⚡ Gaming · 🔥 Premium · 🛡️ Reliable\n\n"
     + "Хуш омадед ба ALMAZZSHOP! 💎\nМагазини фурӯши хидматҳои рақамӣ.\n\nЧиро интихоб мекунед?"
 )
@@ -298,7 +298,7 @@ async def reply_about(message: Message, state: FSMContext) -> None:
         orders_count = await count_total_delivered_orders(session)
 
     text = (
-        "ℹ️ Дар бораи ALMAZ TJ\n\n"
+        "ℹ️ Дар бораи ALMAZZSHOP\n\n"
         "🤖 Боти расмии фурӯши хидматҳои рақамӣ дар Тоҷикистон\n\n"
         "🎮 Хизматҳо: Free Fire (CIS/Бразилия/Индонезия), PUBG Mobile, Standoff 2, Telegram Stars\n"
         "🚀 Афзалиятҳо: суръати баланд (1-5 дақ.), бехатар\n\n"
@@ -514,7 +514,7 @@ async def menu_about(callback: CallbackQuery) -> None:
         orders_count = await count_total_delivered_orders(session)
 
     text = (
-        "ℹ️ Дар бораи ALMAZ TJ\n\n"
+        "ℹ️ Дар бораи ALMAZZSHOP\n\n"
         "🤖 Боти расмии фурӯши хидматҳои рақамӣ дар Тоҷикистон\n\n"
         "🎮 Хизматҳо: Free Fire (CIS/Бразилия/Индонезия), PUBG Mobile, Standoff 2, Telegram Stars\n"
         "🚀 Афзалиятҳо: суръати баланд (1-5 дақ.), бехатар\n\n"
