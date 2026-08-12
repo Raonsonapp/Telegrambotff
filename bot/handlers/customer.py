@@ -51,13 +51,7 @@ from bot.keyboards import (
     terms_keyboard,
 )
 from bot.middlewares import is_subscribed
-from bot.services.payments import (
-    AlifManualProvider,
-    AmonatbonkManualProvider,
-    EskhataManualProvider,
-    ManualBankTransferProvider,
-    get_payment_provider,
-)
+from bot.services.payments import AlifManualProvider, AmonatbonkManualProvider, ManualBankTransferProvider, get_payment_provider
 from bot.states import OrderFlow
 from bot.texts import (
     FAQ_TEXT,
@@ -1050,11 +1044,6 @@ async def choose_payment_card(callback: CallbackQuery, state: FSMContext) -> Non
 @router.callback_query(OrderFlow.choosing_payment_method, F.data == "paymethod:alif")
 async def choose_payment_alif(callback: CallbackQuery, state: FSMContext) -> None:
     await _create_orders_and_invoice(callback, state, AlifManualProvider())
-
-
-@router.callback_query(OrderFlow.choosing_payment_method, F.data == "paymethod:eskhata")
-async def choose_payment_eskhata(callback: CallbackQuery, state: FSMContext) -> None:
-    await _create_orders_and_invoice(callback, state, EskhataManualProvider())
 
 
 @router.callback_query(OrderFlow.choosing_payment_method, F.data == "paymethod:amonatbonk")
