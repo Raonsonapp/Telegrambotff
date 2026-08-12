@@ -83,7 +83,16 @@ def build_dispatcher() -> Dispatcher:
 
             return True
 
-        return False
+        # Any other unhandled exception from inside a handler: log it and
+        # tell aiogram it was "handled" (return True) so this one bad
+        # update can't take down the whole polling loop — without this,
+        # an unexpected error while processing a single button tap or
+        # message would otherwise propagate and stop the entire bot for
+        # every user until Render restarts it.
+        logger.exception(
+            "Unhandled error while processing update: %s", event.exception
+        )
+        return True
 
     return dp
 
@@ -136,6 +145,11 @@ async def configure_bot_commands(bot: Bot) -> None:
 
         except Exception as exc:
 
+            # Telegram requires the bot to already have a chat with this
+            # user (they must have messaged it at least once) before a
+            # per-chat command scope can be set for them — an admin who
+            # hasn't pressed /start yet just keeps the default menu (still
+            # works fine by typing /admin manually) until they do.
             logger.warning(
                 "Admin commands error for %s: %s",
                 admin_id,
@@ -240,9 +254,21 @@ async def start_http_server(bot: Bot):
 # =========================================================
 
 async def keepalive_loop():
+    """Render's free tier spins a web service down after ~15 minutes with
+    NO incoming HTTP request — polling mode makes zero inbound HTTP calls
+    on its own (it's the bot calling OUT to Telegram, not Telegram calling
+    in), so without this, Render sees "no traffic" and kills the process
+    regardless of the bot being busy internally. Pinging our own /health
+    on a schedule shorter than 15 minutes is what keeps the free instance
+    alive. Interval is config.keepalive_ping_seconds (KEEPALIVE_PING_SECONDS
+    env var, default 300s/5min — comfortably under the 15-minute cutoff
+    even if a single ping is briefly delayed)."""
 
-    # 10 minutes
-    interval = 600
+    interval = config.keepalive_ping_seconds
+
+    if interval <= 0:
+        logger.info("KEEPALIVE_PING_SECONDS=0 — keepalive disabled by config.")
+        return
 
     public_url = (
         config.public_url
@@ -252,8 +278,14 @@ async def keepalive_loop():
 
     if not public_url:
 
+        # This is exactly the "bot dies every 15 minutes" symptom: with no
+        # PUBLIC_URL, this whole loop is a no-op and nothing ever stops
+        # Render's own free-tier spin-down timer. Set PUBLIC_URL in
+        # Render's Environment tab to this service's real https URL.
         logger.warning(
-            "PUBLIC_URL is empty. Keepalive disabled."
+            "PUBLIC_URL is empty — keepalive DISABLED, Render's free "
+            "instance WILL spin down after ~15 minutes of inactivity. "
+            "Set PUBLIC_URL in Render's Environment tab to fix this."
         )
 
         return
@@ -263,7 +295,7 @@ async def keepalive_loop():
     )
 
     logger.info(
-        "KEEPALIVE STARTED: every 600 seconds"
+        "KEEPALIVE STARTED: every %s seconds -> %s", interval, health_url
     )
 
     timeout = aiohttp.ClientTimeout(
@@ -277,10 +309,6 @@ async def keepalive_loop():
         while True:
 
             try:
-
-                await asyncio.sleep(
-                    interval
-                )
 
                 async with session.get(
                     health_url
@@ -306,6 +334,10 @@ async def keepalive_loop():
                     "KEEPALIVE ERROR: %s",
                     exc,
                 )
+
+            await asyncio.sleep(
+                interval
+            )
 
 
 # =========================================================
