@@ -128,7 +128,6 @@ def games_menu_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [_ibtn("🔥 Free Fire", callback_data="menu:buy_diamonds", style=STYLE_NAV)],
-            [_ibtn("🔥 Free Fire Бразилия", callback_data="menu:ff_brazil", style=STYLE_NAV)],
             [_ibtn("🔥 Free Fire Индонезия", callback_data="menu:ff_indonesia", style=STYLE_NAV)],
             [_ibtn("🔫 PUBG Mobile", callback_data="menu:pubg", style=STYLE_NAV)],
             [_ibtn("🎯 Standoff 2", callback_data="menu:standoff2", style=STYLE_NAV)],
@@ -170,11 +169,13 @@ def contact_keyboard() -> InlineKeyboardMarkup:
     # reject the whole send_message call with BUTTON_URL_INVALID — skip that
     # row entirely instead of shipping a broken button, so the rest of the
     # contact screen still works while those values are still pending.
+    # Colors here are per explicit request rather than the meaning-based
+    # scheme elsewhere: 🟢 WhatsApp, 🔴 Instagram, 🔵 channel/menu.
     rows = []
     if config.contact_whatsapp_url:
-        rows.append([_ibtn("💬 WhatsApp", url=config.contact_whatsapp_url, style=STYLE_NAV)])
+        rows.append([_ibtn("💬 WhatsApp", url=config.contact_whatsapp_url, style=STYLE_GO)])
     if config.contact_instagram_url:
-        rows.append([_ibtn("📷 Instagram", url=config.contact_instagram_url, style=STYLE_NAV)])
+        rows.append([_ibtn("📷 Instagram", url=config.contact_instagram_url, style=STYLE_STOP)])
     if config.shop_channel_url:
         rows.append([_ibtn("📢 Канал", url=config.shop_channel_url, style=STYLE_NAV)])
     rows.append([_ibtn("🔙 Ба меню", callback_data="menu:main", style=STYLE_NAV)])
@@ -253,16 +254,15 @@ def payment_link_keyboard(pay_url: str) -> InlineKeyboardMarkup:
 
 def payment_method_keyboard() -> InlineKeyboardMarkup:
     """Shown right after "✅ Тасдиқ (бо чек)" when PAYMENT_PROVIDER=manual —
-    lets the customer choose which manual card to pay into. All four
+    lets the customer choose which manual card to pay into. All three
     options lead to the exact same admin-confirmed receipt flow (see
     bot/services/payments.py), just with a different card/label — same
-    STYLE_GO for all four since they're parallel "proceed to pay" choices,
-    not different outcomes."""
+    STYLE_GO for all three since they're parallel "proceed to pay"
+    choices, not different outcomes."""
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [_ibtn("💳 ДС (Душанбе Сити)", callback_data="paymethod:card", style=STYLE_GO)],
             [_ibtn("💳 Алиф", callback_data="paymethod:alif", style=STYLE_GO)],
-            [_ibtn("💳 Эсхата", callback_data="paymethod:eskhata", style=STYLE_GO)],
             [_ibtn("💳 Амонатбонк", callback_data="paymethod:amonatbonk", style=STYLE_GO)],
             [_ibtn("❌ Бекор", callback_data="order:cancel", style=STYLE_STOP)],
         ]
@@ -304,3 +304,24 @@ def admin_order_keyboard(order: Order) -> InlineKeyboardMarkup:
             [_ibtn("📦 Дода шуд (Delivered)", callback_data=f"admin:delivered:{order.id}", style=STYLE_GO)]
         )
     return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def admin_panel_keyboard() -> InlineKeyboardMarkup:
+    """The /admin panel — read-only views the admin can tap instead of
+    typing a command; anything that needs typed arguments (adding a
+    product, setting a price, ...) still has its own /command, listed as
+    text below the buttons (see bot/handlers/admin.py:admin_panel)."""
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [_ibtn("📦 Маҳсулот", callback_data="adminpanel:products", style=STYLE_NAV)],
+            [_ibtn("⏳ Фармоишҳои дар интизор", callback_data="adminpanel:pending", style=STYLE_NAV)],
+            [_ibtn("🧾 Чекҳои фиристодашуда", callback_data="adminpanel:proofs", style=STYLE_NAV)],
+            [_ibtn("🎁 Ҳолати туҳфа", callback_data="adminpanel:giveaway", style=STYLE_NAV)],
+        ]
+    )
+
+
+def admin_panel_back_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[[_ibtn("🔙 Панели админ", callback_data="adminpanel:home", style=STYLE_NAV)]]
+    )
