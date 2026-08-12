@@ -14,34 +14,50 @@ from bot.db.models import Order, Product, ProductCategory
 # Telegram Bot API 9.4 (Feb 9, 2026) added a `style` field to
 # KeyboardButton/InlineKeyboardButton — but it supports exactly THREE
 # accent colors, not an arbitrary palette: 'success' (green), 'danger'
-# (red), 'primary' (blue). There is no yellow/gold, purple, or orange
-# option at the platform level; omitting `style` renders the app's normal
-# default (white on reply keyboards, transparent on inline keyboards).
+# (red), 'primary' (blue). There is no yellow/gold, purple, or ORANGE
+# option at the platform level (orange specifically was asked for on the
+# back/menu button — genuinely not offered by Telegram, not a bug here);
+# omitting `style` renders the app's normal default (white on reply
+# keyboards, transparent on inline keyboards) — used below as a 4th,
+# visually-distinct-from-blue option for "go back" specifically.
+# Telegram also has NO button animation, glow/particle effect, or custom
+# sound capability at all — buttons are static text+color, full stop; no
+# bot on any platform's Bot API can add that, this isn't a gap specific
+# to this project.
+#
 # Requires aiogram>=3.30.0 (see requirements.txt) and a reasonably recent
 # Telegram client to actually render — older clients simply ignore the
 # field and show the normal default button, so this never breaks
 # anything, it just won't show a color there yet.
 #
-# Every button in this file is assigned ONE of these four by MEANING,
-# the same meaning always gets the same color everywhere in the bot:
+# Every button is assigned a color by MEANING, the same meaning always
+# gets the same color everywhere in the bot:
 #
 #   STYLE_GO      🟢 green  — confirm / accept / pay / proceed / buy /
 #                             "yes" / mark delivered
 #   STYLE_STOP    🔴 red    — reject / cancel / decline / "no"
-#   STYLE_NAV     🔵 blue   — navigation (menu/back/categories/profile/
-#                             history) AND money-context actions (price/
-#                             balance/pay-method choice) — Telegram has no
-#                             separate gold, so money buttons use blue,
-#                             the closest "this leads somewhere important"
-#                             accent, except the final pay-now action
-#                             itself which reads as GO (green) instead,
-#                             matching "Пардохт шуд" being green.
-#   STYLE_NEUTRAL (none)   — everything else: info/help/FAQ/rules/skip —
-#                             matches Telegram's own default/no-style.
+#   STYLE_NAV     🔵 blue   — navigation FORWARD into something (open a
+#                             category, view a list, choose a pay method)
+#   STYLE_BACK   ⚪ default — navigating BACK/OUT (🔙 Ба меню and similar) —
+#                             visually distinct from the blue "go forward"
+#                             buttons; closest available approximation to
+#                             the requested orange, which Telegram doesn't
+#                             offer.
+#   STYLE_NEUTRAL (none)   — everything else: info/help/FAQ/skip, and
+#                             alternated with STYLE_NAV in same-meaning
+#                             PEER lists (a row of game categories, a row
+#                             of product packs, ...) purely so a long list
+#                             of equally-important choices doesn't render
+#                             as one flat wall of blue — still meaning-
+#                             based (every item in that list has the exact
+#                             same "select this" meaning), just alternating
+#                             which of the two available neutral-ish colors
+#                             represents it.
 STYLE_GO = "success"
 STYLE_STOP = "danger"
 STYLE_NAV = "primary"
 STYLE_NEUTRAL = None
+STYLE_BACK = STYLE_NEUTRAL
 
 
 def _ibtn(
@@ -65,6 +81,13 @@ def _ibtn(
 def _kbtn(text: str, *, style: str | None = STYLE_NEUTRAL) -> KeyboardButton:
     """Same idea as _ibtn but for the persistent reply keyboard."""
     return KeyboardButton(text=text, style=style)
+
+
+def _peer_style(index: int) -> str | None:
+    """Alternating NAV/NEUTRAL for a list of same-meaning peer choices
+    (every row means "select this"), so the list has visual rhythm
+    instead of being one flat block of blue — see STYLE_NEUTRAL above."""
+    return STYLE_NAV if index % 2 == 0 else STYLE_NEUTRAL
 
 
 # Categories that support "🛒 Якчанд бастаро якҷоя харидан" (buy several
@@ -105,11 +128,11 @@ def force_join_keyboard() -> InlineKeyboardMarkup:
 def main_reply_keyboard() -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup(
         keyboard=[
-            [_kbtn("🎮 Бозиҳо", style=STYLE_NAV), _kbtn("✈️ Telegram", style=STYLE_NAV)],
-            [_kbtn("👤 Профил", style=STYLE_NAV), _kbtn("🤝 Реферал", style=STYLE_NAV)],
-            [_kbtn("⭐ Отзив"), _kbtn("🆘 Дастгирӣ")],
-            [_kbtn("❓ Саволҳои маъмул"), _kbtn("ℹ️ Маълумот")],
-            [_kbtn("🎁 Туҳфа")],
+            [_kbtn("🎮 Бозиҳо", style=STYLE_NAV), _kbtn("✈️ Telegram", style=STYLE_NEUTRAL)],
+            [_kbtn("👤 Профил", style=STYLE_NAV), _kbtn("🤝 Реферал", style=STYLE_GO)],
+            [_kbtn("⭐ Отзив", style=STYLE_NEUTRAL), _kbtn("🆘 Дастгирӣ", style=STYLE_STOP)],
+            [_kbtn("❓ Саволҳои маъмул", style=STYLE_NEUTRAL), _kbtn("ℹ️ Маълумот", style=STYLE_NAV)],
+            [_kbtn("🎁 Туҳфа", style=STYLE_GO)],
         ],
         resize_keyboard=True,
         is_persistent=True,
@@ -125,42 +148,41 @@ def review_channel_keyboard() -> InlineKeyboardMarkup:
 
 
 def games_menu_keyboard() -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [_ibtn("🔥 Free Fire", callback_data="menu:buy_diamonds", style=STYLE_NAV)],
-            [_ibtn("🔥 Free Fire Индонезия", callback_data="menu:ff_indonesia", style=STYLE_NAV)],
-            [_ibtn("🔫 PUBG Mobile", callback_data="menu:pubg", style=STYLE_NAV)],
-            [_ibtn("🎯 Standoff 2", callback_data="menu:standoff2", style=STYLE_NAV)],
-            [_ibtn("🎫 Комбо (Пропуски прокачка)", callback_data="menu:combo", style=STYLE_NAV)],
-            [_ibtn("🔙 Ба меню", callback_data="menu:main", style=STYLE_NAV)],
-        ]
-    )
+    games = [
+        ("🔥 Free Fire", "menu:buy_diamonds"),
+        ("🔥 Free Fire Индонезия", "menu:ff_indonesia"),
+        ("🔫 PUBG Mobile", "menu:pubg"),
+        ("🎯 Standoff 2", "menu:standoff2"),
+    ]
+    rows = [[_ibtn(text, callback_data=data, style=_peer_style(i))] for i, (text, data) in enumerate(games)]
+    rows.append([_ibtn("🔙 Ба меню", callback_data="menu:main", style=STYLE_BACK)])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
 def profile_menu_keyboard() -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [_ibtn("📄 Фармоишҳоям", callback_data="menu:myorders", style=STYLE_NAV)],
-            [_ibtn("🏆 Топ харидорон", callback_data="menu:top_buyers", style=STYLE_NAV)],
-            [_ibtn("🏅 Топ рефералдорон", callback_data="menu:top_referrers", style=STYLE_NAV)],
-            [_ibtn("📜 Таърихи баланс", callback_data="menu:balance_history", style=STYLE_NAV)],
-            [_ibtn("🔙 Ба меню", callback_data="menu:main", style=STYLE_NAV)],
-        ]
-    )
+    items = [
+        ("📄 Фармоишҳоям", "menu:myorders"),
+        ("🏆 Топ харидорон", "menu:top_buyers"),
+        ("🏅 Топ рефералдорон", "menu:top_referrers"),
+        ("📜 Таърихи баланс", "menu:balance_history"),
+    ]
+    rows = [[_ibtn(text, callback_data=data, style=_peer_style(i))] for i, (text, data) in enumerate(items)]
+    rows.append([_ibtn("🔙 Ба меню", callback_data="menu:main", style=STYLE_BACK)])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
 def referral_menu_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [_ibtn("🏅 Топ рефералдорон", callback_data="menu:top_referrers", style=STYLE_NAV)],
-            [_ibtn("🔙 Ба меню", callback_data="menu:main", style=STYLE_NAV)],
+            [_ibtn("🔙 Ба меню", callback_data="menu:main", style=STYLE_BACK)],
         ]
     )
 
 
 def back_to_menu_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
-        inline_keyboard=[[_ibtn("🔙 Ба меню", callback_data="menu:main", style=STYLE_NAV)]]
+        inline_keyboard=[[_ibtn("🔙 Ба меню", callback_data="menu:main", style=STYLE_BACK)]]
     )
 
 
@@ -170,7 +192,7 @@ def contact_keyboard() -> InlineKeyboardMarkup:
     # row entirely instead of shipping a broken button, so the rest of the
     # contact screen still works while those values are still pending.
     # Colors here are per explicit request rather than the meaning-based
-    # scheme elsewhere: 🟢 WhatsApp, 🔴 Instagram, 🔵 channel/menu.
+    # scheme elsewhere: 🟢 WhatsApp, 🔴 Instagram, 🔵 channel.
     rows = []
     if config.contact_whatsapp_url:
         rows.append([_ibtn("💬 WhatsApp", url=config.contact_whatsapp_url, style=STYLE_GO)])
@@ -178,7 +200,7 @@ def contact_keyboard() -> InlineKeyboardMarkup:
         rows.append([_ibtn("📷 Instagram", url=config.contact_instagram_url, style=STYLE_STOP)])
     if config.shop_channel_url:
         rows.append([_ibtn("📢 Канал", url=config.shop_channel_url, style=STYLE_NAV)])
-    rows.append([_ibtn("🔙 Ба меню", callback_data="menu:main", style=STYLE_NAV)])
+    rows.append([_ibtn("🔙 Ба меню", callback_data="menu:main", style=STYLE_BACK)])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
@@ -196,14 +218,14 @@ def _product_label(p: Product) -> str:
 
 def products_keyboard(products: list[Product], category: ProductCategory) -> InlineKeyboardMarkup:
     rows = [
-        [_ibtn(_product_label(p), callback_data=f"product:{p.id}", style=STYLE_NAV)]
-        for p in products
+        [_ibtn(_product_label(p), callback_data=f"product:{p.id}", style=_peer_style(i))]
+        for i, p in enumerate(products)
     ]
     if category in _CART_ENABLED_CATEGORIES:
         rows.append(
-            [_ibtn("🛒 Якчанд бастаро якҷоя харидан", callback_data=f"cartmode:{category.value}", style=STYLE_NAV)]
+            [_ibtn("🛒 Якчанд бастаро якҷоя харидан", callback_data=f"cartmode:{category.value}", style=STYLE_GO)]
         )
-    rows.append([_ibtn("🔙 Ба меню", callback_data="menu:main", style=STYLE_NAV)])
+    rows.append([_ibtn("🔙 Ба меню", callback_data="menu:main", style=STYLE_BACK)])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
@@ -211,11 +233,10 @@ def cart_select_keyboard(
     products: list[Product], category: ProductCategory, selected_ids: set[int]
 ) -> InlineKeyboardMarkup:
     rows = []
-    for p in products:
+    for i, p in enumerate(products):
         mark = "✅" if p.id in selected_ids else "⬜"
-        rows.append(
-            [_ibtn(f"{mark} {_product_label(p)}", callback_data=f"cartitem:{p.id}", style=STYLE_NAV)]
-        )
+        style = STYLE_GO if p.id in selected_ids else _peer_style(i)
+        rows.append([_ibtn(f"{mark} {_product_label(p)}", callback_data=f"cartitem:{p.id}", style=style)])
     if selected_ids:
         total = sum(p.price_somoni for p in products if p.id in selected_ids)
         rows.append(
@@ -228,9 +249,9 @@ def cart_select_keyboard(
             ]
         )
     rows.append(
-        [_ibtn("🔙 Якто-якто харидан", callback_data=f"cartmode:exit:{category.value}", style=STYLE_NAV)]
+        [_ibtn("🔙 Якто-якто харидан", callback_data=f"cartmode:exit:{category.value}", style=STYLE_BACK)]
     )
-    rows.append([_ibtn("🔙 Ба меню", callback_data="menu:main", style=STYLE_NAV)])
+    rows.append([_ibtn("🔙 Ба меню", callback_data="menu:main", style=STYLE_BACK)])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
@@ -311,17 +332,18 @@ def admin_panel_keyboard() -> InlineKeyboardMarkup:
     typing a command; anything that needs typed arguments (adding a
     product, setting a price, ...) still has its own /command, listed as
     text below the buttons (see bot/handlers/admin.py:admin_panel)."""
+    items = [
+        ("📦 Маҳсулот", "adminpanel:products"),
+        ("⏳ Фармоишҳои дар интизор", "adminpanel:pending"),
+        ("🧾 Чекҳои фиристодашуда", "adminpanel:proofs"),
+        ("🎁 Ҳолати туҳфа", "adminpanel:giveaway"),
+    ]
     return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [_ibtn("📦 Маҳсулот", callback_data="adminpanel:products", style=STYLE_NAV)],
-            [_ibtn("⏳ Фармоишҳои дар интизор", callback_data="adminpanel:pending", style=STYLE_NAV)],
-            [_ibtn("🧾 Чекҳои фиристодашуда", callback_data="adminpanel:proofs", style=STYLE_NAV)],
-            [_ibtn("🎁 Ҳолати туҳфа", callback_data="adminpanel:giveaway", style=STYLE_NAV)],
-        ]
+        inline_keyboard=[[_ibtn(text, callback_data=data, style=_peer_style(i))] for i, (text, data) in enumerate(items)]
     )
 
 
 def admin_panel_back_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
-        inline_keyboard=[[_ibtn("🔙 Панели админ", callback_data="adminpanel:home", style=STYLE_NAV)]]
+        inline_keyboard=[[_ibtn("🔙 Панели админ", callback_data="adminpanel:home", style=STYLE_BACK)]]
     )
