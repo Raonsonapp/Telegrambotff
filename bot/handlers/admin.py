@@ -559,6 +559,49 @@ async def admin_panel_home(callback: CallbackQuery) -> None:
     await callback.answer()
 
 
+def _config_text() -> str:
+    """Shows the LIVE, actually-in-effect payment config — not what's in
+    the code files, but what config.py resolved to on THIS running
+    deployment. Render environment variables set directly in the
+    dashboard always override the code's defaults — if a value here
+    doesn't match what was given as the "real" one, that's the reason,
+    and the fix is in Render → Environment, not in another code change."""
+    dc_example_link = (
+        f"{config.dc_pay_base_url}?a={config.receiving_card_number or '?'}"
+        f"&s=9.00&c={config.dc_pay_card_code}&f1={config.dc_pay_f1}"
+    )
+    alif_example_link = (
+        f"{config.alif_mobi_base_url}?id={config.alif_mobi_provider_id}"
+        f"&amount=9.00&account={config.alif_mobi_account or '?'}"
+    )
+    return (
+        "Ин арзишҳои ФАЪОЛИИ ҳозира ҳастанд — на аз файл, балки он чӣ бот "
+        "ҲОЗИР воқеан истифода мебарад:\n\n"
+        f"💳 ДС — рақами корт: {config.receiving_card_number or '❌ ХОЛӢ — бо админ тамос гиред'}\n"
+        f"🔗 ДС — намунаи линк:\n{dc_example_link}\n\n"
+        f"💳 Алиф — account: {config.alif_mobi_account or '❌ ХОЛӢ'}\n"
+        f"🔗 Алиф — намунаи линк:\n{alif_example_link}\n\n"
+        f"💳 Амонатбонк — рақам: {config.mobile_transfer_number or '❌ ХОЛӢ'}\n\n"
+        "⚠️ Агар ягон арзиш аз он чӣ бояд бошад ФАРҚ кунад — дар Render → "
+        "Environment ҳамин номи тағйирёбанда (RECEIVING_CARD_NUMBER, "
+        "DC_PAY_CARD_CODE, DC_PAY_BASE_URL, DC_PAY_F1, ALIF_MOBI_ACCOUNT, "
+        "MOBILE_TRANSFER_NUMBER) гузошта шудааст ва ба файлҳои нав бартарӣ "
+        "дорад — онро ё пурра НЕСТ кунед (Delete), ё ба арзиши дуруст иваз кунед."
+    )
+
+
+@router.callback_query(F.data == "adminpanel:config")
+async def admin_panel_config(callback: CallbackQuery) -> None:
+    if not is_admin(callback.from_user.id):
+        await callback.answer("Танҳо админ метавонад ин корро кунад.", show_alert=True)
+        return
+    await callback.message.edit_text(
+        neon_header("⚙️ Танзимоти пардохт", "admin") + "\n\n" + _config_text(),
+        reply_markup=admin_panel_back_keyboard(),
+    )
+    await callback.answer()
+
+
 @router.message(Command("fzr_categories"))
 async def fzr_categories(message: Message) -> None:
     if not is_admin(message.from_user.id):
