@@ -332,6 +332,7 @@ def admin_panel_keyboard() -> InlineKeyboardMarkup:
         ("⏳ Фармоишҳои дар интизор", "adminpanel:pending"),
         ("🧾 Чекҳои фиристодашуда", "adminpanel:proofs"),
         ("🎁 Ҳолати туҳфа", "adminpanel:giveaway"),
+        ("⚙️ Танзимоти пардохт (зинда)", "adminpanel:config"),
     ]
     return InlineKeyboardMarkup(
         inline_keyboard=[[_ibtn(text, callback_data=data, style=_peer_style(i))] for i, (text, data) in enumerate(items)]
